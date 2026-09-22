@@ -1,0 +1,26 @@
+node_modules/
+
+# build output
+frontend/dist/
+dist/
+
+# databases
+*.db
+*.db-journal
+
+# data
+backend/data/
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/

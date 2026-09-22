@@ -1,0 +1,259 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int             @id @default(autoincrement())
+  email        String          @unique
+  passwordHash String
+  name         String
+  role         String          @default("student")
+  avatar       String?
+  major        String?
+  year         String?
+  anonymousDefault Boolean     @default(true)
+  nudges       Boolean         @default(true)
+  nightMode    Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  sessions     Session[]
+  checkIns     CheckIn[]
+  chatMessages ChatMessage[]
+  chatSessions ChatSession[]
+  posts        Post[]         @relation("PostAuthor")
+  comments     Comment[]
+  ownedPosts   Post[]         @relation("PostOwner")
+  enrollments  Enrollment[]
+  submissions  Submission[]
+  attendance   AttendanceRecord[]
+  clubMembers  ClubMember[]
+  clubMessages ClubMessage[]
+  ownedClubs   Club[]
+  postVotes    PostVote[]
+}
+
+model Session {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model CheckIn {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  mood      String
+  text      String?
+  label     String?
+  score     Float?
+  createdAt DateTime @default(now())
+}
+
+model ChatMessage {
+  id        Int          @id @default(autoincrement())
+  userId    Int?
+  user      User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId Int?
+  session   ChatSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  role      String
+  content   String
+  intent    String?
+  riskLevel String?
+  label     String?
+  score     Float?
+  createdAt DateTime     @default(now())
+}
+
+model ChatSession {
+  id             Int           @id @default(autoincrement())
+  userId         Int?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  title          String        @default("New chat")
+  intent         String?
+  sentimentScore Float?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  messages       ChatMessage[]
+}
+
+model KnowledgeChunk {
+  id         Int      @id @default(autoincrement())
+  source     String
+  collection String   @default("mental_health")
+  category   String
+  title      String
+  text       String
+  embedding  String
+  tokens     Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([collection, category])
+}
+
+model Course {
+  id          Int           @id @default(autoincrement())
+  name        String
+  code        String        @unique
+  credits     Int           @default(3)
+  instructor  String?
+  color       String?
+  attendance  Int?
+  grade       Int?
+  letter      String?
+  enrollments Enrollment[]
+  quizzes     Quiz[]
+  submissions Submission[]
+  assignments Assignment[]
+  sessions    ClassSession[]
+}
+
+model ClassSession {
+  id        Int                @id @default(autoincrement())
+  courseId  Int
+  course    Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  date      String
+  createdAt DateTime           @default(now())
+  records   AttendanceRecord[]
+
+  @@unique([courseId, date])
+}
+
+model AttendanceRecord {
+  id        Int          @id @default(autoincrement())
+  sessionId Int
+  session   ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  present   Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  @@unique([sessionId, userId])
+}
+
+model Quiz {
+  id       Int    @id @default(autoincrement())
+  courseId Int
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title    String
+  date     String?
+  daysLeft Int    @default(0)
+}
+
+model Enrollment {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId   Int
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  ia1        Int?
+  ia2        Int?
+  attendance Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model Assignment {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title     String
+  due       String?
+  createdAt DateTime @default(now())
+}
+
+model Submission {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId  Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  type      String   @default("assignment")
+  score     Float?
+  createdAt DateTime @default(now())
+}
+
+model Post {
+  id         Int       @id @default(autoincrement())
+  authorId   Int?
+  author     User?     @relation("PostAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorName String    @default("Anonymous")
+  anonymous  Boolean   @default(true)
+  ownerId    Int?
+  owner      User?     @relation("PostOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  category   String
+  title      String
+  body       String
+  upvotes    Int       @default(0)
+  createdAt  DateTime  @default(now())
+  comments   Comment[]
+  votes      PostVote[]
+}
+
+model PostVote {
+  id        Int      @id @default(autoincrement())
+  postId    Int
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+model Comment {
+  id         Int      @id @default(autoincrement())
+  postId     Int
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId   Int?
+  author     User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorName String   @default("Anonymous")
+  body       String
+  createdAt  DateTime @default(now())
+}
+
+model Club {
+  id          Int          @id @default(autoincrement())
+  name        String
+  description String
+  members     Int          @default(0)
+  tags        String       @default("[]")
+  accent      String?
+  banner      String?
+  ownerId     Int?
+  owner       User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+  memberships ClubMember[]
+  messages    ClubMessage[]
+}
+
+model ClubMessage {
+  id        Int      @id @default(autoincrement())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  author    String   @default("Anonymous")
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model ClubMember {
+  id        Int      @id @default(autoincrement())
+  clubId    Int
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+
+  @@unique([clubId, userId])
+}
