@@ -1,0 +1,9 @@
+Model,Accuracy (%)
+Logistic Regression,86.84
+Gradient Boosting (XGBoost substitute),86.84
+Random Forest,84.21
+SVM (linear kernel),84.21
+AdaBoost,84.21
+Naive Bayes,84.21
+KNN (k=5),78.95
+Decision Tree,76.32

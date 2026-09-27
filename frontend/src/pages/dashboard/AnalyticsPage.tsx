@@ -15,8 +15,9 @@ import {
   YAxis,
 } from 'recharts'
 import { CrystalMark } from '../../components/CrystalMark'
+import { MlRiskPanel } from '../../components/ml/MlRiskPanel'
 import { PageHeader } from '../../components/PageHeader'
-import { api } from '../../lib/api'
+import { api, getUser } from '../../lib/api'
 
 type RiskStudent = {
   id: number
@@ -59,6 +60,9 @@ export function AnalyticsPage() {
   })
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Staff get the full ML roster; students only ever see their own row.
+  const isStaff = ['teacher', 'admin'].includes(String(getUser()?.role ?? ''))
 
   useEffect(() => {
     Promise.all([
@@ -398,6 +402,10 @@ export function AnalyticsPage() {
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="border-t border-line pt-10">
+            <MlRiskPanel showRoster={isStaff} />
           </div>
         </>
       )}

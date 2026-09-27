@@ -1,0 +1,129 @@
+{
+  "version": "1.0.0",
+  "trainedAt": "2026-09-26T08:31:04+00:00",
+  "source": "ml_analysis_full.py (Documents/ML)",
+  "seed": 42,
+  "testSize": 0.25,
+  "features": [
+    "sentimentscore",
+    "attendance_percent",
+    "marks_cgpa"
+  ],
+  "labelWeights": {
+    "attendance": 0.35,
+    "sentiment": 0.25,
+    "marks": 0.4
+  },
+  "labelNoise": {
+    "distribution": "normal",
+    "mean": 0.0,
+    "stdDev": 0.05
+  },
+  "thresholds": {
+    "quantiles": [
+      0.33,
+      0.66
+    ],
+    "q1": 0.23733806181643285,
+    "q2": 0.37072638972265076
+  },
+  "classOrder": [
+    "Low",
+    "Medium",
+    "High"
+  ],
+  "primaryModel": {
+    "name": "Logistic Regression",
+    "type": "logistic_regression",
+    "featureOrder": [
+      "sentimentscore",
+      "attendance_percent",
+      "marks_cgpa"
+    ],
+    "classes": [
+      "High",
+      "Low",
+      "Medium"
+    ],
+    "scaler": {
+      "mean": [
+        0.5977678571428571,
+        71.840625,
+        7.428303571428572
+      ],
+      "scale": [
+        0.29232965070468386,
+        17.594540614372505,
+        1.1506154319015984
+      ]
+    },
+    "coef": [
+      [
+        -1.9643598993377656,
+        -1.7349526375269193,
+        -1.2608179616954591
+      ],
+      [
+        1.8974336031055639,
+        1.6424820686077741,
+        1.3196025538445484
+      ],
+      [
+        0.06692629623220073,
+        0.0924705689191451,
+        -0.05878459214908917
+      ]
+    ],
+    "intercept": [
+      -0.7175456565195009,
+      -0.5954769077427007,
+      1.3130225642622027
+    ],
+    "accuracyTest": 86.84,
+    "accuracyFull": 86.67
+  },
+  "dataset": {
+    "rows": 150,
+    "trainRows": 112,
+    "testRows": 38,
+    "classDistribution": {
+      "High": 51,
+      "Low": 50,
+      "Medium": 49
+    }
+  },
+  "studyResults": [
+    {
+      "model": "Logistic Regression",
+      "accuracy": 86.84
+    },
+    {
+      "model": "Gradient Boosting (XGBoost substitute)",
+      "accuracy": 86.84
+    },
+    {
+      "model": "Random Forest",
+      "accuracy": 84.21
+    },
+    {
+      "model": "SVM (linear kernel)",
+      "accuracy": 84.21
+    },
+    {
+      "model": "AdaBoost",
+      "accuracy": 84.21
+    },
+    {
+      "model": "Naive Bayes",
+      "accuracy": 84.21
+    },
+    {
+      "model": "KNN (k=5)",
+      "accuracy": 78.95
+    },
+    {
+      "model": "Decision Tree",
+      "accuracy": 76.32
+    }
+  ]
+}

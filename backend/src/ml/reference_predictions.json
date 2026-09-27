@@ -1,0 +1,1205 @@
+{
+  "note": "Python LogisticRegression output for every dataset row. The JS port must match exactly.",
+  "rows": [
+    {
+      "username": "user_001",
+      "sentimentscore": 0.58,
+      "attendance_percent": 44.73,
+      "marks_cgpa": 6.36,
+      "expected": "High",
+      "expectedScore": 46.8881
+    },
+    {
+      "username": "user_002",
+      "sentimentscore": 0.14,
+      "attendance_percent": 93.13,
+      "marks_cgpa": 7.25,
+      "expected": "Medium",
+      "expectedScore": 34.2132
+    },
+    {
+      "username": "user_003",
+      "sentimentscore": 0.7,
+      "attendance_percent": 44.17,
+      "marks_cgpa": 6.8,
+      "expected": "High",
+      "expectedScore": 43.0789
+    },
+    {
+      "username": "user_004",
+      "sentimentscore": 1.0,
+      "attendance_percent": 99.11,
+      "marks_cgpa": 10.0,
+      "expected": "Low",
+      "expectedScore": 7.9266
+    },
+    {
+      "username": "user_005",
+      "sentimentscore": 0.72,
+      "attendance_percent": 62.81,
+      "marks_cgpa": 7.89,
+      "expected": "Medium",
+      "expectedScore": 27.2857
+    },
+    {
+      "username": "user_006",
+      "sentimentscore": 0.14,
+      "attendance_percent": 49.76,
+      "marks_cgpa": 6.04,
+      "expected": "High",
+      "expectedScore": 53.7533
+    },
+    {
+      "username": "user_007",
+      "sentimentscore": 0.27,
+      "attendance_percent": 82.11,
+      "marks_cgpa": 6.65,
+      "expected": "Medium",
+      "expectedScore": 45.8076
+    },
+    {
+      "username": "user_008",
+      "sentimentscore": 0.21,
+      "attendance_percent": 78.1,
+      "marks_cgpa": 6.71,
+      "expected": "High",
+      "expectedScore": 44.4122
+    },
+    {
+      "username": "user_009",
+      "sentimentscore": 0.11,
+      "attendance_percent": 67.74,
+      "marks_cgpa": 7.4,
+      "expected": "High",
+      "expectedScore": 41.5936
+    },
+    {
+      "username": "user_010",
+      "sentimentscore": 0.73,
+      "attendance_percent": 81.29,
+      "marks_cgpa": 7.81,
+      "expected": "Low",
+      "expectedScore": 24.7713
+    },
+    {
+      "username": "user_011",
+      "sentimentscore": 0.7,
+      "attendance_percent": 86.1,
+      "marks_cgpa": 9.0,
+      "expected": "Low",
+      "expectedScore": 14.0479
+    },
+    {
+      "username": "user_012",
+      "sentimentscore": 0.16,
+      "attendance_percent": 88.3,
+      "marks_cgpa": 6.79,
+      "expected": "Medium",
+      "expectedScore": 35.6064
+    },
+    {
+      "username": "user_013",
+      "sentimentscore": 0.23,
+      "attendance_percent": 94.79,
+      "marks_cgpa": 8.52,
+      "expected": "Medium",
+      "expectedScore": 28.2033
+    },
+    {
+      "username": "user_014",
+      "sentimentscore": 0.2,
+      "attendance_percent": 52.76,
+      "marks_cgpa": 6.71,
+      "expected": "High",
+      "expectedScore": 40.1276
+    },
+    {
+      "username": "user_015",
+      "sentimentscore": 0.69,
+      "attendance_percent": 78.57,
+      "marks_cgpa": 7.24,
+      "expected": "Medium",
+      "expectedScore": 17.6659
+    },
+    {
+      "username": "user_016",
+      "sentimentscore": 0.22,
+      "attendance_percent": 84.7,
+      "marks_cgpa": 8.06,
+      "expected": "Medium",
+      "expectedScore": 29.8036
+    },
+    {
+      "username": "user_017",
+      "sentimentscore": 0.78,
+      "attendance_percent": 65.71,
+      "marks_cgpa": 7.18,
+      "expected": "Medium",
+      "expectedScore": 23.7173
+    },
+    {
+      "username": "user_018",
+      "sentimentscore": 0.8,
+      "attendance_percent": 99.84,
+      "marks_cgpa": 9.18,
+      "expected": "Low",
+      "expectedScore": 9.9072
+    },
+    {
+      "username": "user_019",
+      "sentimentscore": 0.98,
+      "attendance_percent": 85.35,
+      "marks_cgpa": 8.04,
+      "expected": "Low",
+      "expectedScore": 8.9274
+    },
+    {
+      "username": "user_020",
+      "sentimentscore": 0.27,
+      "attendance_percent": 49.6,
+      "marks_cgpa": 6.08,
+      "expected": "High",
+      "expectedScore": 44.5085
+    },
+    {
+      "username": "user_021",
+      "sentimentscore": 0.24,
+      "attendance_percent": 63.09,
+      "marks_cgpa": 6.45,
+      "expected": "High",
+      "expectedScore": 53.4467
+    },
+    {
+      "username": "user_022",
+      "sentimentscore": 0.72,
+      "attendance_percent": 55.08,
+      "marks_cgpa": 7.72,
+      "expected": "Medium",
+      "expectedScore": 30.7131
+    },
+    {
+      "username": "user_023",
+      "sentimentscore": 0.05,
+      "attendance_percent": 80.82,
+      "marks_cgpa": 7.89,
+      "expected": "High",
+      "expectedScore": 39.2406
+    },
+    {
+      "username": "user_024",
+      "sentimentscore": 0.31,
+      "attendance_percent": 85.05,
+      "marks_cgpa": 7.4,
+      "expected": "Medium",
+      "expectedScore": 25.7588
+    },
+    {
+      "username": "user_025",
+      "sentimentscore": 0.59,
+      "attendance_percent": 57.61,
+      "marks_cgpa": 5.77,
+      "expected": "High",
+      "expectedScore": 39.2846
+    },
+    {
+      "username": "user_026",
+      "sentimentscore": 0.92,
+      "attendance_percent": 83.33,
+      "marks_cgpa": 9.49,
+      "expected": "Low",
+      "expectedScore": 10.4291
+    },
+    {
+      "username": "user_027",
+      "sentimentscore": 0.2,
+      "attendance_percent": 85.72,
+      "marks_cgpa": 6.8,
+      "expected": "Medium",
+      "expectedScore": 32.043
+    },
+    {
+      "username": "user_028",
+      "sentimentscore": 0.34,
+      "attendance_percent": 77.52,
+      "marks_cgpa": 7.4,
+      "expected": "Medium",
+      "expectedScore": 36.6465
+    },
+    {
+      "username": "user_029",
+      "sentimentscore": 0.15,
+      "attendance_percent": 51.93,
+      "marks_cgpa": 5.14,
+      "expected": "High",
+      "expectedScore": 54.5113
+    },
+    {
+      "username": "user_030",
+      "sentimentscore": 1.0,
+      "attendance_percent": 97.21,
+      "marks_cgpa": 10.0,
+      "expected": "Low",
+      "expectedScore": -0.482
+    },
+    {
+      "username": "user_031",
+      "sentimentscore": 0.8,
+      "attendance_percent": 75.94,
+      "marks_cgpa": 7.22,
+      "expected": "Medium",
+      "expectedScore": 21.5325
+    },
+    {
+      "username": "user_032",
+      "sentimentscore": 0.9,
+      "attendance_percent": 61.78,
+      "marks_cgpa": 8.05,
+      "expected": "Medium",
+      "expectedScore": 32.9384
+    },
+    {
+      "username": "user_033",
+      "sentimentscore": 0.61,
+      "attendance_percent": 54.37,
+      "marks_cgpa": 6.77,
+      "expected": "High",
+      "expectedScore": 38.573
+    },
+    {
+      "username": "user_034",
+      "sentimentscore": 0.29,
+      "attendance_percent": 44.73,
+      "marks_cgpa": 6.3,
+      "expected": "High",
+      "expectedScore": 46.6059
+    },
+    {
+      "username": "user_035",
+      "sentimentscore": 0.93,
+      "attendance_percent": 98.68,
+      "marks_cgpa": 8.58,
+      "expected": "Low",
+      "expectedScore": 12.0047
+    },
+    {
+      "username": "user_036",
+      "sentimentscore": 0.38,
+      "attendance_percent": 79.59,
+      "marks_cgpa": 6.88,
+      "expected": "Medium",
+      "expectedScore": 29.0193
+    },
+    {
+      "username": "user_037",
+      "sentimentscore": 0.82,
+      "attendance_percent": 71.66,
+      "marks_cgpa": 8.74,
+      "expected": "Low",
+      "expectedScore": 20.5033
+    },
+    {
+      "username": "user_038",
+      "sentimentscore": 0.99,
+      "attendance_percent": 95.73,
+      "marks_cgpa": 9.65,
+      "expected": "Low",
+      "expectedScore": -6.6539
+    },
+    {
+      "username": "user_039",
+      "sentimentscore": 0.8,
+      "attendance_percent": 82.78,
+      "marks_cgpa": 8.68,
+      "expected": "Low",
+      "expectedScore": 9.6661
+    },
+    {
+      "username": "user_040",
+      "sentimentscore": 0.88,
+      "attendance_percent": 62.41,
+      "marks_cgpa": 7.34,
+      "expected": "Medium",
+      "expectedScore": 27.7808
+    },
+    {
+      "username": "user_041",
+      "sentimentscore": 0.55,
+      "attendance_percent": 54.87,
+      "marks_cgpa": 5.61,
+      "expected": "High",
+      "expectedScore": 48.2978
+    },
+    {
+      "username": "user_042",
+      "sentimentscore": 0.82,
+      "attendance_percent": 73.24,
+      "marks_cgpa": 6.91,
+      "expected": "Medium",
+      "expectedScore": 27.0828
+    },
+    {
+      "username": "user_043",
+      "sentimentscore": 0.68,
+      "attendance_percent": 82.47,
+      "marks_cgpa": 7.28,
+      "expected": "Medium",
+      "expectedScore": 24.4373
+    },
+    {
+      "username": "user_044",
+      "sentimentscore": 0.13,
+      "attendance_percent": 41.88,
+      "marks_cgpa": 5.32,
+      "expected": "High",
+      "expectedScore": 59.3065
+    },
+    {
+      "username": "user_045",
+      "sentimentscore": 0.19,
+      "attendance_percent": 56.71,
+      "marks_cgpa": 6.2,
+      "expected": "High",
+      "expectedScore": 43.2089
+    },
+    {
+      "username": "user_046",
+      "sentimentscore": 0.35,
+      "attendance_percent": 83.4,
+      "marks_cgpa": 7.85,
+      "expected": "Medium",
+      "expectedScore": 27.0608
+    },
+    {
+      "username": "user_047",
+      "sentimentscore": 0.69,
+      "attendance_percent": 54.58,
+      "marks_cgpa": 6.58,
+      "expected": "High",
+      "expectedScore": 35.0238
+    },
+    {
+      "username": "user_048",
+      "sentimentscore": 0.71,
+      "attendance_percent": 45.66,
+      "marks_cgpa": 6.06,
+      "expected": "High",
+      "expectedScore": 47.3146
+    },
+    {
+      "username": "user_049",
+      "sentimentscore": 0.35,
+      "attendance_percent": 64.67,
+      "marks_cgpa": 5.87,
+      "expected": "High",
+      "expectedScore": 46.8536
+    },
+    {
+      "username": "user_050",
+      "sentimentscore": 0.87,
+      "attendance_percent": 79.21,
+      "marks_cgpa": 7.39,
+      "expected": "Low",
+      "expectedScore": 12.1513
+    },
+    {
+      "username": "user_051",
+      "sentimentscore": 0.32,
+      "attendance_percent": 83.69,
+      "marks_cgpa": 6.88,
+      "expected": "Medium",
+      "expectedScore": 36.8089
+    },
+    {
+      "username": "user_052",
+      "sentimentscore": 0.7,
+      "attendance_percent": 51.5,
+      "marks_cgpa": 5.91,
+      "expected": "High",
+      "expectedScore": 38.9096
+    },
+    {
+      "username": "user_053",
+      "sentimentscore": 0.67,
+      "attendance_percent": 51.01,
+      "marks_cgpa": 7.3,
+      "expected": "Medium",
+      "expectedScore": 32.8119
+    },
+    {
+      "username": "user_054",
+      "sentimentscore": 0.76,
+      "attendance_percent": 44.52,
+      "marks_cgpa": 7.08,
+      "expected": "High",
+      "expectedScore": 40.1564
+    },
+    {
+      "username": "user_055",
+      "sentimentscore": 0.26,
+      "attendance_percent": 45.87,
+      "marks_cgpa": 5.76,
+      "expected": "High",
+      "expectedScore": 59.5605
+    },
+    {
+      "username": "user_056",
+      "sentimentscore": 0.04,
+      "attendance_percent": 40.89,
+      "marks_cgpa": 5.61,
+      "expected": "High",
+      "expectedScore": 66.9049
+    },
+    {
+      "username": "user_057",
+      "sentimentscore": 0.16,
+      "attendance_percent": 54.18,
+      "marks_cgpa": 5.91,
+      "expected": "High",
+      "expectedScore": 49.2009
+    },
+    {
+      "username": "user_058",
+      "sentimentscore": 0.36,
+      "attendance_percent": 91.88,
+      "marks_cgpa": 7.46,
+      "expected": "Medium",
+      "expectedScore": 27.4559
+    },
+    {
+      "username": "user_059",
+      "sentimentscore": 0.16,
+      "attendance_percent": 40.13,
+      "marks_cgpa": 6.1,
+      "expected": "High",
+      "expectedScore": 59.2108
+    },
+    {
+      "username": "user_060",
+      "sentimentscore": 0.11,
+      "attendance_percent": 87.11,
+      "marks_cgpa": 7.91,
+      "expected": "Medium",
+      "expectedScore": 39.9992
+    },
+    {
+      "username": "user_061",
+      "sentimentscore": 0.94,
+      "attendance_percent": 83.83,
+      "marks_cgpa": 8.93,
+      "expected": "Low",
+      "expectedScore": 9.0436
+    },
+    {
+      "username": "user_062",
+      "sentimentscore": 0.66,
+      "attendance_percent": 69.2,
+      "marks_cgpa": 6.89,
+      "expected": "Medium",
+      "expectedScore": 30.7917
+    },
+    {
+      "username": "user_063",
+      "sentimentscore": 0.29,
+      "attendance_percent": 43.51,
+      "marks_cgpa": 4.73,
+      "expected": "High",
+      "expectedScore": 53.0698
+    },
+    {
+      "username": "user_064",
+      "sentimentscore": 0.56,
+      "attendance_percent": 58.82,
+      "marks_cgpa": 6.73,
+      "expected": "High",
+      "expectedScore": 32.512
+    },
+    {
+      "username": "user_065",
+      "sentimentscore": 0.91,
+      "attendance_percent": 95.16,
+      "marks_cgpa": 8.24,
+      "expected": "Low",
+      "expectedScore": 15.0466
+    },
+    {
+      "username": "user_066",
+      "sentimentscore": 0.9,
+      "attendance_percent": 70.47,
+      "marks_cgpa": 7.01,
+      "expected": "Medium",
+      "expectedScore": 31.5767
+    },
+    {
+      "username": "user_067",
+      "sentimentscore": 0.77,
+      "attendance_percent": 44.08,
+      "marks_cgpa": 6.17,
+      "expected": "High",
+      "expectedScore": 40.2819
+    },
+    {
+      "username": "user_068",
+      "sentimentscore": 0.93,
+      "attendance_percent": 96.5,
+      "marks_cgpa": 9.38,
+      "expected": "Low",
+      "expectedScore": 10.4727
+    },
+    {
+      "username": "user_069",
+      "sentimentscore": 0.03,
+      "attendance_percent": 42.38,
+      "marks_cgpa": 5.48,
+      "expected": "High",
+      "expectedScore": 64.3052
+    },
+    {
+      "username": "user_070",
+      "sentimentscore": 0.73,
+      "attendance_percent": 73.91,
+      "marks_cgpa": 7.31,
+      "expected": "Medium",
+      "expectedScore": 23.4159
+    },
+    {
+      "username": "user_071",
+      "sentimentscore": 0.13,
+      "attendance_percent": 80.18,
+      "marks_cgpa": 6.74,
+      "expected": "High",
+      "expectedScore": 43.534
+    },
+    {
+      "username": "user_072",
+      "sentimentscore": 0.26,
+      "attendance_percent": 47.85,
+      "marks_cgpa": 5.7,
+      "expected": "High",
+      "expectedScore": 61.6427
+    },
+    {
+      "username": "user_073",
+      "sentimentscore": 1.0,
+      "attendance_percent": 95.74,
+      "marks_cgpa": 8.31,
+      "expected": "Low",
+      "expectedScore": 8.0719
+    },
+    {
+      "username": "user_074",
+      "sentimentscore": 0.83,
+      "attendance_percent": 77.27,
+      "marks_cgpa": 7.31,
+      "expected": "Medium",
+      "expectedScore": 30.7887
+    },
+    {
+      "username": "user_075",
+      "sentimentscore": 0.79,
+      "attendance_percent": 72.26,
+      "marks_cgpa": 7.06,
+      "expected": "Medium",
+      "expectedScore": 13.6203
+    },
+    {
+      "username": "user_076",
+      "sentimentscore": 0.58,
+      "attendance_percent": 60.94,
+      "marks_cgpa": 6.41,
+      "expected": "High",
+      "expectedScore": 42.6405
+    },
+    {
+      "username": "user_077",
+      "sentimentscore": 0.69,
+      "attendance_percent": 57.1,
+      "marks_cgpa": 6.98,
+      "expected": "Medium",
+      "expectedScore": 35.2802
+    },
+    {
+      "username": "user_078",
+      "sentimentscore": 0.39,
+      "attendance_percent": 58.15,
+      "marks_cgpa": 7.11,
+      "expected": "High",
+      "expectedScore": 39.9625
+    },
+    {
+      "username": "user_079",
+      "sentimentscore": 0.84,
+      "attendance_percent": 71.74,
+      "marks_cgpa": 7.96,
+      "expected": "Low",
+      "expectedScore": 22.5098
+    },
+    {
+      "username": "user_080",
+      "sentimentscore": 0.77,
+      "attendance_percent": 95.91,
+      "marks_cgpa": 9.71,
+      "expected": "Low",
+      "expectedScore": -1.5963
+    },
+    {
+      "username": "user_081",
+      "sentimentscore": 0.84,
+      "attendance_percent": 55.87,
+      "marks_cgpa": 7.54,
+      "expected": "Medium",
+      "expectedScore": 28.1871
+    },
+    {
+      "username": "user_082",
+      "sentimentscore": 0.6,
+      "attendance_percent": 49.33,
+      "marks_cgpa": 5.79,
+      "expected": "High",
+      "expectedScore": 46.3601
+    },
+    {
+      "username": "user_083",
+      "sentimentscore": 0.79,
+      "attendance_percent": 60.57,
+      "marks_cgpa": 7.92,
+      "expected": "Medium",
+      "expectedScore": 34.76
+    },
+    {
+      "username": "user_084",
+      "sentimentscore": 0.69,
+      "attendance_percent": 70.32,
+      "marks_cgpa": 8.37,
+      "expected": "Medium",
+      "expectedScore": 22.0666
+    },
+    {
+      "username": "user_085",
+      "sentimentscore": 0.69,
+      "attendance_percent": 43.05,
+      "marks_cgpa": 6.85,
+      "expected": "High",
+      "expectedScore": 36.24
+    },
+    {
+      "username": "user_086",
+      "sentimentscore": 0.58,
+      "attendance_percent": 42.65,
+      "marks_cgpa": 5.26,
+      "expected": "High",
+      "expectedScore": 47.0237
+    },
+    {
+      "username": "user_087",
+      "sentimentscore": 0.8,
+      "attendance_percent": 98.79,
+      "marks_cgpa": 9.02,
+      "expected": "Low",
+      "expectedScore": 13.9205
+    },
+    {
+      "username": "user_088",
+      "sentimentscore": 0.86,
+      "attendance_percent": 82.34,
+      "marks_cgpa": 7.63,
+      "expected": "Low",
+      "expectedScore": 20.8048
+    },
+    {
+      "username": "user_089",
+      "sentimentscore": 0.98,
+      "attendance_percent": 96.7,
+      "marks_cgpa": 8.6,
+      "expected": "Low",
+      "expectedScore": 4.6062
+    },
+    {
+      "username": "user_090",
+      "sentimentscore": 0.15,
+      "attendance_percent": 42.16,
+      "marks_cgpa": 5.44,
+      "expected": "High",
+      "expectedScore": 62.3003
+    },
+    {
+      "username": "user_091",
+      "sentimentscore": 0.59,
+      "attendance_percent": 65.79,
+      "marks_cgpa": 6.9,
+      "expected": "Medium",
+      "expectedScore": 35.1089
+    },
+    {
+      "username": "user_092",
+      "sentimentscore": 1.0,
+      "attendance_percent": 95.99,
+      "marks_cgpa": 8.38,
+      "expected": "Low",
+      "expectedScore": 12.7267
+    },
+    {
+      "username": "user_093",
+      "sentimentscore": 0.8,
+      "attendance_percent": 61.47,
+      "marks_cgpa": 7.61,
+      "expected": "Medium",
+      "expectedScore": 24.5352
+    },
+    {
+      "username": "user_094",
+      "sentimentscore": 0.22,
+      "attendance_percent": 61.22,
+      "marks_cgpa": 7.14,
+      "expected": "High",
+      "expectedScore": 42.8747
+    },
+    {
+      "username": "user_095",
+      "sentimentscore": 1.0,
+      "attendance_percent": 98.43,
+      "marks_cgpa": 10.0,
+      "expected": "Low",
+      "expectedScore": -1.411
+    },
+    {
+      "username": "user_096",
+      "sentimentscore": 0.58,
+      "attendance_percent": 54.2,
+      "marks_cgpa": 7.18,
+      "expected": "High",
+      "expectedScore": 30.4924
+    },
+    {
+      "username": "user_097",
+      "sentimentscore": 0.65,
+      "attendance_percent": 50.62,
+      "marks_cgpa": 5.86,
+      "expected": "High",
+      "expectedScore": 44.0736
+    },
+    {
+      "username": "user_098",
+      "sentimentscore": 0.31,
+      "attendance_percent": 95.47,
+      "marks_cgpa": 8.06,
+      "expected": "Medium",
+      "expectedScore": 27.9008
+    },
+    {
+      "username": "user_099",
+      "sentimentscore": 0.91,
+      "attendance_percent": 80.19,
+      "marks_cgpa": 7.87,
+      "expected": "Low",
+      "expectedScore": 17.7291
+    },
+    {
+      "username": "user_100",
+      "sentimentscore": 0.74,
+      "attendance_percent": 49.55,
+      "marks_cgpa": 6.35,
+      "expected": "High",
+      "expectedScore": 37.5846
+    },
+    {
+      "username": "user_101",
+      "sentimentscore": 0.63,
+      "attendance_percent": 42.32,
+      "marks_cgpa": 5.46,
+      "expected": "High",
+      "expectedScore": 40.5211
+    },
+    {
+      "username": "user_102",
+      "sentimentscore": 0.85,
+      "attendance_percent": 95.11,
+      "marks_cgpa": 9.67,
+      "expected": "Low",
+      "expectedScore": 4.6783
+    },
+    {
+      "username": "user_103",
+      "sentimentscore": 0.79,
+      "attendance_percent": 92.28,
+      "marks_cgpa": 9.12,
+      "expected": "Low",
+      "expectedScore": 9.7584
+    },
+    {
+      "username": "user_104",
+      "sentimentscore": 0.11,
+      "attendance_percent": 63.91,
+      "marks_cgpa": 5.5,
+      "expected": "High",
+      "expectedScore": 48.8701
+    },
+    {
+      "username": "user_105",
+      "sentimentscore": 0.8,
+      "attendance_percent": 86.4,
+      "marks_cgpa": 8.54,
+      "expected": "Low",
+      "expectedScore": 14.7936
+    },
+    {
+      "username": "user_106",
+      "sentimentscore": 0.95,
+      "attendance_percent": 80.77,
+      "marks_cgpa": 8.13,
+      "expected": "Low",
+      "expectedScore": 17.4808
+    },
+    {
+      "username": "user_107",
+      "sentimentscore": 0.77,
+      "attendance_percent": 41.66,
+      "marks_cgpa": 5.76,
+      "expected": "High",
+      "expectedScore": 52.5599
+    },
+    {
+      "username": "user_108",
+      "sentimentscore": 0.39,
+      "attendance_percent": 74.84,
+      "marks_cgpa": 6.4,
+      "expected": "High",
+      "expectedScore": 39.3289
+    },
+    {
+      "username": "user_109",
+      "sentimentscore": 0.14,
+      "attendance_percent": 75.79,
+      "marks_cgpa": 7.57,
+      "expected": "High",
+      "expectedScore": 40.9813
+    },
+    {
+      "username": "user_110",
+      "sentimentscore": 0.93,
+      "attendance_percent": 66.18,
+      "marks_cgpa": 6.94,
+      "expected": "Medium",
+      "expectedScore": 25.4548
+    },
+    {
+      "username": "user_111",
+      "sentimentscore": 0.79,
+      "attendance_percent": 93.97,
+      "marks_cgpa": 7.97,
+      "expected": "Low",
+      "expectedScore": 5.8866
+    },
+    {
+      "username": "user_112",
+      "sentimentscore": 0.76,
+      "attendance_percent": 66.16,
+      "marks_cgpa": 8.06,
+      "expected": "Medium",
+      "expectedScore": 25.4714
+    },
+    {
+      "username": "user_113",
+      "sentimentscore": 0.99,
+      "attendance_percent": 81.21,
+      "marks_cgpa": 9.02,
+      "expected": "Low",
+      "expectedScore": 11.0477
+    },
+    {
+      "username": "user_114",
+      "sentimentscore": 0.17,
+      "attendance_percent": 51.82,
+      "marks_cgpa": 6.74,
+      "expected": "High",
+      "expectedScore": 62.9692
+    },
+    {
+      "username": "user_115",
+      "sentimentscore": 0.25,
+      "attendance_percent": 95.25,
+      "marks_cgpa": 8.46,
+      "expected": "Medium",
+      "expectedScore": 25.6107
+    },
+    {
+      "username": "user_116",
+      "sentimentscore": 0.8,
+      "attendance_percent": 47.48,
+      "marks_cgpa": 6.59,
+      "expected": "Medium",
+      "expectedScore": 38.5297
+    },
+    {
+      "username": "user_117",
+      "sentimentscore": 0.76,
+      "attendance_percent": 80.01,
+      "marks_cgpa": 8.53,
+      "expected": "Low",
+      "expectedScore": 18.7029
+    },
+    {
+      "username": "user_118",
+      "sentimentscore": 0.68,
+      "attendance_percent": 73.26,
+      "marks_cgpa": 8.01,
+      "expected": "Medium",
+      "expectedScore": 19.4756
+    },
+    {
+      "username": "user_119",
+      "sentimentscore": 0.83,
+      "attendance_percent": 62.75,
+      "marks_cgpa": 6.73,
+      "expected": "Medium",
+      "expectedScore": 36.0816
+    },
+    {
+      "username": "user_120",
+      "sentimentscore": 0.76,
+      "attendance_percent": 74.15,
+      "marks_cgpa": 8.51,
+      "expected": "Low",
+      "expectedScore": 24.7672
+    },
+    {
+      "username": "user_121",
+      "sentimentscore": 0.61,
+      "attendance_percent": 58.23,
+      "marks_cgpa": 7.4,
+      "expected": "Medium",
+      "expectedScore": 38.7247
+    },
+    {
+      "username": "user_122",
+      "sentimentscore": 0.13,
+      "attendance_percent": 76.4,
+      "marks_cgpa": 6.9,
+      "expected": "High",
+      "expectedScore": 37.8631
+    },
+    {
+      "username": "user_123",
+      "sentimentscore": 0.83,
+      "attendance_percent": 80.54,
+      "marks_cgpa": 8.86,
+      "expected": "Low",
+      "expectedScore": 22.635
+    },
+    {
+      "username": "user_124",
+      "sentimentscore": 1.0,
+      "attendance_percent": 97.59,
+      "marks_cgpa": 9.7,
+      "expected": "Low",
+      "expectedScore": -4.9658
+    },
+    {
+      "username": "user_125",
+      "sentimentscore": 0.77,
+      "attendance_percent": 57.03,
+      "marks_cgpa": 7.25,
+      "expected": "Medium",
+      "expectedScore": 34.7238
+    },
+    {
+      "username": "user_126",
+      "sentimentscore": 0.38,
+      "attendance_percent": 45.6,
+      "marks_cgpa": 5.32,
+      "expected": "High",
+      "expectedScore": 64.2123
+    },
+    {
+      "username": "user_127",
+      "sentimentscore": 0.32,
+      "attendance_percent": 58.63,
+      "marks_cgpa": 5.71,
+      "expected": "High",
+      "expectedScore": 43.6868
+    },
+    {
+      "username": "user_128",
+      "sentimentscore": 0.81,
+      "attendance_percent": 42.77,
+      "marks_cgpa": 6.58,
+      "expected": "High",
+      "expectedScore": 35.629
+    },
+    {
+      "username": "user_129",
+      "sentimentscore": 0.84,
+      "attendance_percent": 86.11,
+      "marks_cgpa": 9.34,
+      "expected": "Low",
+      "expectedScore": 11.9998
+    },
+    {
+      "username": "user_130",
+      "sentimentscore": 0.29,
+      "attendance_percent": 74.54,
+      "marks_cgpa": 6.93,
+      "expected": "High",
+      "expectedScore": 36.4236
+    },
+    {
+      "username": "user_131",
+      "sentimentscore": 0.62,
+      "attendance_percent": 63.98,
+      "marks_cgpa": 7.5,
+      "expected": "Medium",
+      "expectedScore": 24.3537
+    },
+    {
+      "username": "user_132",
+      "sentimentscore": 1.0,
+      "attendance_percent": 93.56,
+      "marks_cgpa": 9.95,
+      "expected": "Low",
+      "expectedScore": 2.7968
+    },
+    {
+      "username": "user_133",
+      "sentimentscore": 0.76,
+      "attendance_percent": 86.71,
+      "marks_cgpa": 9.08,
+      "expected": "Low",
+      "expectedScore": 9.02
+    },
+    {
+      "username": "user_134",
+      "sentimentscore": 0.82,
+      "attendance_percent": 81.75,
+      "marks_cgpa": 8.43,
+      "expected": "Low",
+      "expectedScore": 19.5355
+    },
+    {
+      "username": "user_135",
+      "sentimentscore": 0.77,
+      "attendance_percent": 95.05,
+      "marks_cgpa": 8.17,
+      "expected": "Low",
+      "expectedScore": 10.2054
+    },
+    {
+      "username": "user_136",
+      "sentimentscore": 0.78,
+      "attendance_percent": 67.88,
+      "marks_cgpa": 7.68,
+      "expected": "Medium",
+      "expectedScore": 33.7717
+    },
+    {
+      "username": "user_137",
+      "sentimentscore": 0.81,
+      "attendance_percent": 59.04,
+      "marks_cgpa": 7.05,
+      "expected": "Medium",
+      "expectedScore": 26.9697
+    },
+    {
+      "username": "user_138",
+      "sentimentscore": 1.0,
+      "attendance_percent": 88.9,
+      "marks_cgpa": 8.8,
+      "expected": "Low",
+      "expectedScore": 7.0747
+    },
+    {
+      "username": "user_139",
+      "sentimentscore": 0.88,
+      "attendance_percent": 94.41,
+      "marks_cgpa": 8.36,
+      "expected": "Low",
+      "expectedScore": 15.5841
+    },
+    {
+      "username": "user_140",
+      "sentimentscore": 0.18,
+      "attendance_percent": 91.69,
+      "marks_cgpa": 8.36,
+      "expected": "Medium",
+      "expectedScore": 23.8142
+    },
+    {
+      "username": "user_141",
+      "sentimentscore": 0.11,
+      "attendance_percent": 90.39,
+      "marks_cgpa": 8.24,
+      "expected": "Medium",
+      "expectedScore": 33.7908
+    },
+    {
+      "username": "user_142",
+      "sentimentscore": 0.68,
+      "attendance_percent": 69.08,
+      "marks_cgpa": 7.35,
+      "expected": "Medium",
+      "expectedScore": 35.9577
+    },
+    {
+      "username": "user_143",
+      "sentimentscore": 0.75,
+      "attendance_percent": 82.81,
+      "marks_cgpa": 7.94,
+      "expected": "Low",
+      "expectedScore": 12.4691
+    },
+    {
+      "username": "user_144",
+      "sentimentscore": 0.75,
+      "attendance_percent": 93.58,
+      "marks_cgpa": 8.11,
+      "expected": "Low",
+      "expectedScore": 16.9802
+    },
+    {
+      "username": "user_145",
+      "sentimentscore": 0.06,
+      "attendance_percent": 62.98,
+      "marks_cgpa": 5.67,
+      "expected": "High",
+      "expectedScore": 55.0764
+    },
+    {
+      "username": "user_146",
+      "sentimentscore": 0.69,
+      "attendance_percent": 64.89,
+      "marks_cgpa": 7.21,
+      "expected": "Medium",
+      "expectedScore": 35.1076
+    },
+    {
+      "username": "user_147",
+      "sentimentscore": 0.76,
+      "attendance_percent": 43.74,
+      "marks_cgpa": 6.11,
+      "expected": "High",
+      "expectedScore": 35.0662
+    },
+    {
+      "username": "user_148",
+      "sentimentscore": 1.0,
+      "attendance_percent": 86.19,
+      "marks_cgpa": 7.85,
+      "expected": "Low",
+      "expectedScore": 6.8312
+    },
+    {
+      "username": "user_149",
+      "sentimentscore": 0.23,
+      "attendance_percent": 92.84,
+      "marks_cgpa": 7.94,
+      "expected": "Medium",
+      "expectedScore": 32.6057
+    },
+    {
+      "username": "user_150",
+      "sentimentscore": 0.84,
+      "attendance_percent": 96.56,
+      "marks_cgpa": 8.87,
+      "expected": "Low",
+      "expectedScore": 11.2089
+    }
+  ]
+}

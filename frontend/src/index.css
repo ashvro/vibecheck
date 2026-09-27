@@ -1455,3 +1455,17 @@
     transition: none;
   }
 }
+
+@keyframes voice-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 113, 133, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(251, 113, 133, 0);
+  }
+}
+
+.voice-pulse {
+  animation: voice-pulse 1.4s ease-out infinite;
+}

@@ -1,6 +1,16 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { prisma } from '../prisma.js'
-import { groqChat, hfEmotionAnalysis, hasGroq } from '../utils/llm.js'
+import {
+  groqChat,
+  groqChatStream,
+  groqTranscribe,
+  hfEmotionAnalysis,
+  hasGroq,
+  modelConfig,
+} from '../utils/llm.js'
+import { ttsProvider, synthesizeSpeech, isAbortError } from '../utils/tts.js'
+import { requireAuth } from '../middleware/auth.js'
 import { resolveEvidence, detectSupportCategory, formatEvidence, knowledgeStatus } from '../rag.js'
 import { buildUserContext } from '../userContext.js'
 
@@ -148,37 +158,36 @@ assistantRoutes.get('/knowledge-status', async (req, res, next) => {
 
 /* ────────────────────── pipeline stages ────────────────────── */
 
-async function classifyIntent(text, history = []) {
-  const system = `You are an intent router for a student support assistant. Classify the student's latest message into EXACTLY ONE intent.
+async function analyzeMessage(text, { signal } = {}) {
+  const system = `You are the analysis stage of a student support assistant. Analyse the student's latest message and return BOTH its intent and its safety risk in a single pass.
 
-Intents:
+INTENT (exactly one):
 - general: casual conversation, greetings, small talk, open-ended questions about the assistant.
 - career: placements, jobs, resumes, skills needed for roles, career roadmaps, internships.
 - academics: subjects, concepts, assignments, study plans, exams for coursework, doubts about a topic.
 - mental_health: stress, anxiety, mood, burnout, hopelessness, sleep, loneliness, emotions, well-being, overwhelm.
 
-Classify the intent FIRST, based on what the message is fundamentally about. Respond ONLY with JSON: {"intent": "<one of general|career|academics|mental_health>"}`
+RISK LEVEL (assess ONLY for immediate safety concerns, independently of tone or negative emotion):
+- low: negative emotion, stress, or sadness alone.
+- moderate: significant distress, helplessness, or being unable to cope, but NO implicit or explicit self-harm content.
+- high: explicit hopelessness, not wanting to continue, or clear self-harm thoughts without a stated plan.
+- critical: explicit suicidal ideation, a stated plan, or an intention to harm themselves.
 
-  const data = await groqChat({ system, user: `Student message: ${text}`, json: true, temperature: 0 })
-  const intent = data?.intent
-  return INTENTS.includes(intent) ? intent : 'general'
-}
+Do not diagnose. Do not judge. Respond ONLY with JSON:
+{"intent": "<general|career|academics|mental_health>", "riskLevel": "<low|moderate|high|critical>", "reason": "<one short sentence on the risk>"}`
 
-async function assessRisk(text) {
-  const system = `You are a student safety assessor. Assess ONLY this message for immediate safety concerns, independently of tone or negative emotion.
-
-Rules:
-- Negative emotion, stress, or sadness alone is "low" risk.
-- "moderate": significant distress, helplessness, or being unable to cope, but NO implicit or explicit self-harm content.
-- "high": explicit hopelessness, not wanting to continue, or clear self-harm thoughts without a stated plan.
-- "critical": explicit suicidal ideation, a stated plan, or an intention/intent to harm themselves.
-
-Do not diagnose. Do not judge. Respond ONLY with JSON: {"riskLevel": "<low|moderate|high|critical>", "reason": "<one short sentence>"}`
-
-  const data = await groqChat({ system, user: `Student message: ${text}`, json: true, temperature: 0 })
-  const risk = data?.riskLevel
+  const data = await groqChat({
+    system,
+    user: `Student message: ${text}`,
+    json: true,
+    temperature: 0,
+    maxTokens: 250,
+    model: modelConfig.groqFastModel,
+    signal,
+  })
   return {
-    riskLevel: RISK_LEVELS.includes(risk) ? risk : 'low',
+    intent: INTENTS.includes(data?.intent) ? data.intent : 'general',
+    riskLevel: RISK_LEVELS.includes(data?.riskLevel) ? data.riskLevel : 'low',
     reason: typeof data?.reason === 'string' ? data.reason.slice(0, 200) : '',
   }
 }
@@ -194,6 +203,18 @@ function safetyResponse(riskLevel) {
   return `${base}Please reach out today to someone you trust, and consider connecting with your campus counselor or a crisis line — they are trained for exactly this and will listen without judgment. You deserve a safe space to unpack this. Would you like me to share crisis or counseling contact resources?`
 }
 
+/**
+ * Spoken-length safety replies. Same safety content as safetyResponse() —
+ * acknowledgement, immediate action, don't stay alone, offer of help — but
+ * short enough to say out loud without losing any of it.
+ */
+function safetyResponseVoice(riskLevel) {
+  if (riskLevel === 'critical') {
+    return "I'm really glad you told me. Please call your local emergency number right now, or go to the nearest emergency room, and stay with someone you trust until you feel safer. I'm staying right here with you."
+  }
+  return "I'm really glad you reached out. Please talk to someone you trust today, and consider your campus counselor or a crisis line, they're trained for exactly this. Would you like me to find those numbers for you?"
+}
+
 function cleanPara(value) {
   return String(value)
     .replace(/\*\*(.+?)\*\*/g, '$1')
@@ -203,23 +224,18 @@ function cleanPara(value) {
     .trim()
 }
 
-function normalizeStructure(data) {
-  if (typeof data === 'string') return [cleanPara(data)].filter(Boolean)
-  const opening = cleanPara(data?.opening ?? '')
-  const body = Array.isArray(data?.body) ? data.body.map(cleanPara).filter(Boolean) : []
-  const closing = cleanPara(data?.closing ?? '')
-  return [opening, ...body, closing].filter(Boolean)
+function normalizeReplyText(raw) {
+  return String(raw)
+    .split(/\n{2,}/)
+    .map(cleanPara)
+    .filter(Boolean)
+    .join('\n\n')
 }
 
-function toReplyText(data, fallbackText) {
-  const paragraphs = normalizeStructure(data)
-  return paragraphs.length ? paragraphs.join('\n\n') : fallbackText
-}
-
-async function generateReply(context) {
+async function generateReply(context, { onDelta, signal } = {}) {
   const {
     intent, text, history, sentiment, emotion, riskLevel, riskReason,
-    category, evidence, evidenceUsed, correction, userContext, userDataQ,
+    category, evidence, evidenceUsed, correction, userContext, userDataQ, voice,
   } = context
 
   const system = `You are "VibeCheck", a warm, encouraging student support assistant at a college. Your job: be genuinely helpful across academics, career, and well-being, and to be responsible with mental-health topics.
@@ -233,6 +249,20 @@ ${correction ? `- NOTE: a previous reply failed this check: ${correction}. Fix t
 
 ${userContext ? `USER CONTEXT (real, current data from this student's account — answer their personal questions directly and accurately from this only, never invent numbers. If something is missing from it, say it is not recorded yet. Do not repeat raw numbers unless asked.):\n${userContext.summary}${userDataQ ? `\nThis student JUST ASKED about their own account data shown above. Answer their question using ONLY this context — quote the real figures (courses, IA1/IA2, average, attendance %), recent mood check-ins, clubs, community activity, and risk when relevant. If a field they asked about is absent, say it is not recorded yet. Do NOT drift into the previous conversation topic or unrelated examples.` : ''}\n` : ''}
 
+${voice ? `
+VOICE MODE — this reply is SPOKEN ALOUD, not read on screen. These rules override the paragraph and length rules above:
+- One to three short sentences. Hard limit: roughly 35 words total. Two sentences is usually right.
+- Write for the ear. NO markdown, NO lists, NO headings, NO bullet or numbered lists, NO URLs, NO emoji, NO parentheses, NO asterisks, NO em dashes.
+- Only the words you would actually say. No stage directions, no labels, no "Answer:", no formatting.
+- Contractions are preferred: "you're", "I'll", "that's". Spoken, not written.
+- Lead immediately with the answer or the emotional response. Never open with "Great question!" or a preamble.
+- Give ONE most important point. If more detail would help, offer it in a short closing line: "Want the quick version or the full walkthrough?"
+- End with a brief question only when it genuinely moves the conversation forward.
+- For academics: name the concept in one plain sentence and ask what clicked. Save the full walkthrough for when they ask.
+- For career: give one concrete next step, then ask which direction they want.
+- For mental health: one warm validating sentence and one small, doable suggestion. Grounded in EVIDENCE when present.
+` : ''}
+
 STAGE-SPECIFIC BEHAVIOUR:
 1. general — reply warmly and naturally. Short, conversational, no retrieval.
 2. academics — act as an adaptive tutor. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Give a plain definition, an intuitive analogy, then a clear walkthrough with a small concrete example; end with one short practice question when appropriate.
@@ -242,14 +272,15 @@ STAGE-SPECIFIC BEHAVIOUR:
 EVIDENCE (only when retrieved — may be empty):
 ${evidenceUsed && evidence.length ? `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence)}` : 'No retrieved knowledge is available. Give gentle, general, safe guidance only. Where firm facts would normally come from sources (e.g. WHO self-help guidance, NHS Every Mind Matters, NIMH), name them as places to look rather than quoting specific claims.'}
 
-OUTPUT FORMAT — respond with valid JSON only, exactly this shape:
-{ "opening": "<1-2 sentence direct reply that addresses them>", "body": ["<one short paragraph>", "<another optional>", "<another optional>"], "closing": "<short supportive wrap-up, optionally one kind follow-up question>" }
+OUTPUT FORMAT:
+- Start immediately with your reply text. No preamble, no sign-off about what you are about to do.
+- Separate paragraphs with a single blank line.
+- Write plain prose only. NO markdown, NO bold, NO headings, NO bullet or numbered lists, NO links, NO JSON, NO code fences.
 
 FORMATTING RULES:
-- Strictly plain paragraphs. NO markdown (#, **, *, bullets, numbered lists, links, em dashes headers).
 - Each paragraph is 1–3 short, warm, human sentences.
 - Paragraph count: general = 0–1 body; academics/career = up to 3 body; mental_health = 2–3 short body grounded in EVIDENCE.
-- closing always wraps up; do not repeat the opening.
+- The first paragraph must directly address the student; never repeat yourself in the last paragraph.
 
 ALWAYS:
 - Be concise (match the length the message warrants).
@@ -257,19 +288,22 @@ ALWAYS:
 - Do not fabricate sources, links, citations, or statistics.
 - Do not present sentiment or emotion as a diagnosis.
 - For high/critical risk conversations the safety message is handled separately; here just give a brief, caring, steady response.
-- Personal/account questions (grades, attendance, mood, clubs, courses, posts, risk) must be answered ONLY from USER CONTEXT when available.
+- Personal/account questions (grades, attendance, mood, clubs, courses, posts, risk) must be answered ONLY from USER CONTEXT when available.`
 
-Respond with the JSON object only.`
+  const emit = onDelta
+    ? (_raw, full) => onDelta(normalizeReplyText(full))
+    : undefined
 
-  const data = await groqChat({
+  const raw = await groqChatStream({
     system,
     user: text,
     history,
-    json: true,
-    temperature: 0.6,
+    temperature: voice ? 0.7 : 0.6,
     maxTokens: 900,
+    onDelta: emit,
+    signal,
   })
-  return data
+  return normalizeReplyText(raw)
 }
 
 async function verifyMentalHealthReply({ reply, text }) {
@@ -319,29 +353,34 @@ function looksLikeUserDataQuestion(text) {
 
 /* ─────────────────────── main pipeline ─────────────────────── */
 
-async function runPipeline(text, history = [], userContext = null) {
+async function runPipeline(text, history = [], userContext = null, { onDelta, onMeta, onRevision, signal, analysis, voice } = {}) {
   const hardRisk = hardRiskCheck(text)
 
   let intent = 'general'
-  try {
-    intent = await classifyIntent(text, history)
-  } catch {
-    intent = 'general'
-  }
-
-  const userDataQ = userContext ? looksLikeUserDataQuestion(text) : false
-
   let riskLevel = hardRisk || 'low'
   let riskReason = hardRisk ? 'explicit safety language detected in the message' : ''
-  if (!hardRisk) {
-    try {
-      const assessment = await assessRisk(text)
-      riskLevel = assessment.riskLevel
-      riskReason = assessment.reason
-    } catch {
-      /* keep low */
+
+  const settled = analysis
+    ? await analysis
+    : await analyzeMessage(text).then(
+        (value) => ({ ok: true, value }),
+        () => ({ ok: false }),
+      )
+
+  if (settled.ok) {
+    intent = settled.value.intent
+    if (!hardRisk) {
+      riskLevel = settled.value.riskLevel
+      riskReason = settled.value.reason
     }
   }
+  /* analysis unavailable — keep hardRisk or low */
+
+  const userDataQ = userContext ? looksLikeUserDataQuestion(text) : null
+
+  // Intent and risk are settled here — tell the client before the slower
+  // emotion/retrieval work so the chips render while enrichment is in flight.
+  onMeta?.({ intent, riskLevel })
 
   let sentiment = null
   let emotion = null
@@ -349,21 +388,22 @@ async function runPipeline(text, history = [], userContext = null) {
   let evidence = []
   let evidenceUsed = false
 
-  if (intent === 'mental_health') {
+  // Enrichment is only consumed by the generated reply — the canned safety
+  // response ignores it, so skip the work entirely on the crisis path.
+  if (intent === 'mental_health' && riskLevel !== 'high' && riskLevel !== 'critical') {
     category = detectSupportCategory(text)
-    try {
-      const emotions = await hfEmotionAnalysis(text)
-      sentiment = emotions.sentiment
-      emotion = emotions.emotion
-    } catch {
-      /* sentiment unavailable — leave null (never 0) */
+    const [emotionResult, retrievalResult] = await Promise.allSettled([
+      hfEmotionAnalysis(text),
+      resolveEvidence({ intent, message: text, category }),
+    ])
+
+    if (emotionResult.status === 'fulfilled') {
+      sentiment = emotionResult.value.sentiment
+      emotion = emotionResult.value.emotion
     }
-    try {
-      const retrieval = await resolveEvidence({ intent, message: text, category })
-      evidence = retrieval.results
-      evidenceUsed = retrieval.used
-    } catch {
-      evidence = []
+    if (retrievalResult.status === 'fulfilled') {
+      evidence = retrievalResult.value.results
+      evidenceUsed = retrievalResult.value.used
     }
   }
 
@@ -372,22 +412,27 @@ async function runPipeline(text, history = [], userContext = null) {
   let verifiedIssue = ''
 
   if (riskLevel === 'high' || riskLevel === 'critical') {
-    reply = safetyResponse(riskLevel)
+    reply = voice ? safetyResponseVoice(riskLevel) : safetyResponse(riskLevel)
+    onDelta?.(reply)
   } else if (!hasGroq()) {
     reply = fallbackReply(text)
+    onDelta?.(reply)
   } else {
-    const generate = () =>
-      generateReply({
-        intent, text, history, sentiment, emotion, riskLevel, riskReason,
-        category, evidence, evidenceUsed, userContext, userDataQ,
-      })
+    const baseContext = {
+      intent, text, history, sentiment, emotion, riskLevel, riskReason,
+      category, evidence, evidenceUsed, userContext, userDataQ, voice,
+    }
+    const fallback = fallbackReply(text)
 
     try {
-      reply = toReplyText(await generate(), fallbackReply(text))
+      const streamed = await generateReply(baseContext, { onDelta, signal })
+      reply = streamed || fallback
 
       if (intent === 'mental_health') {
         const maxAttempts = 2
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          if (signal?.aborted) break
+
           let check
           try {
             check = await verifyMentalHealthReply({ reply, text })
@@ -395,27 +440,30 @@ async function runPipeline(text, history = [], userContext = null) {
             break
           }
           if (check.ok) break
+
           verified = false
           verifiedIssue = check.issue || ''
           if (attempt === maxAttempts - 1) break
+
           try {
-            reply = toReplyText(
-              await generateReply({
-                intent, text, history, sentiment, emotion, riskLevel, riskReason,
-                category, evidence, evidenceUsed, correction: check.issue, userContext, userDataQ,
-              }),
-              fallbackReply(text),
+            const revised = await generateReply(
+              { ...baseContext, correction: check.issue },
+              { onDelta, signal },
             )
+            if (!revised) break
+            reply = revised
+            onRevision?.(revised)
           } catch {
             break
           }
         }
       }
-    } catch {
+    } catch (err) {
+      if (err?.name === 'AbortError' || signal?.aborted) throw err
       try {
-        reply = toReplyText(await generate(), fallbackReply(text))
+        reply = (await generateReply(baseContext, { signal })) || fallback
       } catch {
-        reply = fallbackReply(text)
+        reply = fallback
       }
     }
   }
@@ -437,73 +485,275 @@ async function runPipeline(text, history = [], userContext = null) {
 
 /* ───────────────────────── HTTP routes ───────────────────────── */
 
+async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision, signal, voice }) {
+  const userId = userIdOf(req)
+
+  // The analysis call is network-bound and depends on nothing, so start it
+  // before the database work instead of waiting behind it.
+  const analysis = analyzeMessage(text, { signal }).then(
+    (value) => ({ ok: true, value }),
+    () => ({ ok: false }),
+  )
+
+  const session = await ensureSession(req, sessionId)
+
+  const [historyRows, userContext] = await Promise.all([
+    prisma.chatMessage.findMany({
+      where: { sessionId: session.id, role: { in: ['user', 'assistant'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    }),
+    userId ? buildUserContext(userId) : Promise.resolve(null),
+  ])
+
+  const history = historyRows.slice(-16).map((m) => ({ role: m.role, content: m.content }))
+
+  const result = await runPipeline(text, history, userContext, { onDelta, onMeta, onRevision, signal, analysis, voice })
+
+  const userMessage = await prisma.chatMessage.create({
+    data: {
+      userId,
+      sessionId: session.id,
+      role: 'user',
+      content: text,
+      intent: result.intent,
+      riskLevel: result.riskLevel,
+      label: result.emotion,
+      score: result.sentiment,
+    },
+  })
+
+  const assistantMessage = await prisma.chatMessage.create({
+    data: {
+      userId,
+      sessionId: session.id,
+      role: 'assistant',
+      content: result.reply,
+    },
+  })
+
+  const sessionData = { sentimentScore: await recomputeSessionSentiment(session.id) }
+  if (session.title === 'New chat') sessionData.title = text.slice(0, 48)
+  const insightIntent = result.intent === 'general' ? session.intent || null : result.intent
+  if (insightIntent) sessionData.intent = insightIntent
+
+  const updated = await prisma.chatSession.update({
+    where: { id: session.id },
+    data: { ...sessionData, updatedAt: new Date() },
+  })
+
+  return {
+    reply: result.reply,
+    meta: {
+      intent: result.intent,
+      riskLevel: result.riskLevel,
+      sentimentScore: result.sentiment,
+      emotion: result.emotion,
+      category: result.category,
+      evidenceUsed: result.evidenceUsed,
+      evidenceCount: result.evidence.length,
+      verified: result.verified,
+    },
+    session: updated,
+    messages: { user: userMessage, assistant: assistantMessage },
+  }
+}
+
+assistantRoutes.get('/tts/status', (req, res) => {
+  res.json({ provider: ttsProvider(), model: process.env.ELEVENLABS_VOICE_MODEL || 'eleven_flash_v2_5' })
+})
+
+assistantRoutes.post('/tts', requireAuth, async (req, res) => {
+  const controller = new AbortController()
+  const isDisconnected = abortOnDisconnect(res, controller)
+
+  try {
+    if (!ttsProvider()) {
+      return res.status(501).json({ error: 'No TTS provider configured.' })
+    }
+    const { text } = req.body || {}
+    const { contentType, body } = await synthesizeSpeech({ text, signal: controller.signal })
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store',
+      'X-Accel-Buffering': 'no',
+    })
+    const reader = body.getReader()
+    while (true) {
+      if (isDisconnected()) break
+      const { done, value } = await reader.read()
+      if (done) break
+      res.write(Buffer.from(value))
+    }
+    res.end()
+  } catch (err) {
+    if (isDisconnected() || isAbortError(err)) {
+      if (!res.writableEnded) res.end()
+      return
+    }
+    if (!res.headersSent) {
+      res.status(err.status || 500).json({ error: err.message || 'Speech synthesis failed' })
+    } else if (!res.writableEnded) {
+      res.end()
+    }
+  }
+})
+
+function openStream(res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  res.flushHeaders?.()
+}
+
+function send(res, event, data) {
+  if (res.writableEnded) return
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+}
+
+/**
+ * Aborts generation when the client hangs up mid-response.
+ *
+ * `req`'s 'close' event fires as soon as the request body has been consumed -
+ * which is before the handler even runs, since express.json()/multer already
+ * read it - so it cannot be used to detect disconnects. `res` closes either
+ * when we finish writing or when the socket dies, so gate on writableFinished.
+ */
+function abortOnDisconnect(res, controller) {
+  let disconnected = false
+  res.on('close', () => {
+    if (res.writableFinished) return
+    disconnected = true
+    controller.abort()
+  })
+  return () => disconnected
+}
+
+assistantRoutes.post('/chat/stream', async (req, res) => {
+  openStream(res)
+
+  const controller = new AbortController()
+  const isDisconnected = abortOnDisconnect(res, controller)
+
+  try {
+    const { message, sessionId } = req.body || {}
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      send(res, 'error', { message: 'A message is required.' })
+      return res.end()
+    }
+
+    const data = await handleMessage({
+      req,
+      text: message.trim(),
+      sessionId,
+      signal: controller.signal,
+      onDelta: (value) => send(res, 'delta', { text: value }),
+      onMeta: (meta) => send(res, 'meta', { meta }),
+      onRevision: (value) => send(res, 'revision', { text: value }),
+    })
+
+    if (isDisconnected()) return
+    send(res, 'done', data)
+  } catch (err) {
+    if (isDisconnected() || err?.name === 'AbortError') return
+    send(res, 'error', { message: err?.message || 'The assistant could not complete this turn.' })
+  } finally {
+    if (!res.writableEnded) res.end()
+  }
+})
+
+const voiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+})
+
+assistantRoutes.post('/voice/stream', voiceUpload.single('audio'), async (req, res) => {
+  openStream(res)
+
+  const controller = new AbortController()
+  const isDisconnected = abortOnDisconnect(res, controller)
+
+  try {
+    if (!req.file) {
+      send(res, 'error', { message: 'An audio file is required.' })
+      return res.end()
+    }
+
+    const { sessionId } = req.body || {}
+    const text = await groqTranscribe({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype || 'audio/wav',
+      filename: req.file.originalname || 'voice.wav',
+      signal: controller.signal,
+    })
+    if (!text) {
+      send(res, 'error', { message: 'Could not hear you — please try again.' })
+      return res.end()
+    }
+
+    send(res, 'transcript', { text })
+
+    const data = await handleMessage({
+      req,
+      text,
+      sessionId,
+      voice: true,
+      signal: controller.signal,
+      onDelta: (value) => send(res, 'delta', { text: value }),
+      onMeta: (meta) => send(res, 'meta', { meta }),
+      onRevision: (value) => send(res, 'revision', { text: value }),
+    })
+
+    if (isDisconnected()) return
+    send(res, 'done', data)
+  } catch (err) {
+    if (isDisconnected() || err?.name === 'AbortError') return
+    send(res, 'error', { message: err?.message || 'The assistant could not complete this turn.' })
+  } finally {
+    if (!res.writableEnded) res.end()
+  }
+})
+
+const voiceUploadBuffered = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+})
+
 assistantRoutes.post('/chat', async (req, res, next) => {
   try {
     const { message, sessionId } = req.body || {}
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'A message is required.' })
     }
-    const text = message.trim()
-    const userId = userIdOf(req)
-    const session = await ensureSession(req, sessionId)
+    const data = await handleMessage({ req, text: message.trim(), sessionId })
+    res.status(201).json(data)
+  } catch (err) {
+    next(err)
+  }
+})
 
-const historyRows = await prisma.chatMessage.findMany({
-      where: { sessionId: session.id, role: { in: ['user', 'assistant'] } },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
+assistantRoutes.post('/voice', voiceUploadBuffered.single('audio'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'An audio file is required.' })
+    }
+    const { sessionId } = req.body || {}
+
+    const text = await groqTranscribe({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype || 'audio/wav',
+      filename: req.file.originalname || 'voice.wav',
     })
-    const history = historyRows.slice(-16).map((m) => ({ role: m.role, content: m.content }))
+    if (!text) {
+      return res.status(400).json({ error: 'Could not hear you — please try again.' })
+    }
 
-    const userContext = userId ? await buildUserContext(userId) : null
-    const result = await runPipeline(text, history, userContext)
-
-    const userMessage = await prisma.chatMessage.create({
-      data: {
-        userId,
-        sessionId: session.id,
-        role: 'user',
-        content: text,
-        intent: result.intent,
-        riskLevel: result.riskLevel,
-        label: result.emotion,
-        score: result.sentiment,
-      },
-    })
-
-    const assistantMessage = await prisma.chatMessage.create({
-      data: {
-        userId,
-        sessionId: session.id,
-        role: 'assistant',
-        content: result.reply,
-      },
-    })
-
-    const sessionData = { sentimentScore: await recomputeSessionSentiment(session.id) }
-    if (session.title === 'New chat') sessionData.title = text.slice(0, 48)
-    const insightIntent = result.intent === 'general' ? session.intent || null : result.intent
-    if (insightIntent) sessionData.intent = insightIntent
-
-    const updated = await prisma.chatSession.update({
-      where: { id: session.id },
-      data: { ...sessionData, updatedAt: new Date() },
-    })
-
-    res.status(201).json({
-      reply: result.reply,
-      meta: {
-        intent: result.intent,
-        riskLevel: result.riskLevel,
-        sentimentScore: result.sentiment,
-        emotion: result.emotion,
-        category: result.category,
-        evidenceUsed: result.evidenceUsed,
-        evidenceCount: result.evidence.length,
-        verified: result.verified,
-      },
-      session: updated,
-      messages: { user: userMessage, assistant: assistantMessage },
-    })
+    const data = await handleMessage({ req, text, sessionId })
+    res.status(201).json({ ...data, transcript: text })
   } catch (err) {
     next(err)
   }

@@ -10,7 +10,9 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
-    "ingest": "node scripts/ingest-knowledge.js"
+    "ingest": "node scripts/ingest-knowledge.js",
+    "ml:verify": "node scripts/verify-ml-port.mjs",
+    "ml:smoke": "node scripts/smoke-ml.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -21,6 +23,7 @@
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.4.0",
     "pdf-parse": "^2.4.5",
     "socket.io": "^4.8.3"
   },

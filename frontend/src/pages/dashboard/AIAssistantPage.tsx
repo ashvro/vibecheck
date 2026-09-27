@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import clsx from 'clsx'
-import { Send, Plus, MessageSquare, Trash2 } from 'lucide-react'
+import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2 } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
+import VoiceOrb from '../../components/VoiceOrb'
 import { api } from '../../lib/api'
+import { streamChat } from '../../lib/stream'
+import {
+  startVoice,
+  stopVoice,
+  prewarmVoice,
+  isVoiceActive,
+  type VoicePhase,
+} from '../../lib/voice'
 
 type ChatMeta = {
   intent?: string | null
@@ -161,10 +170,31 @@ export function AIAssistantPage() {
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  /** Live voice turn shown on the stage instead of the chat transcript. */
+  const [voiceStage, setVoiceStage] = useState({ transcript: '', reply: '' })
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const sessionIdRef = useRef<number | null>(null)
+  const sendAbortRef = useRef<AbortController | null>(null)
+  const voiceTurnRef = useRef<{ userId: number; replyId: number; text: string } | null>(null)
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId
+  }, [sessionId])
+
+  useEffect(() => {
+    prewarmVoice()
+    return () => {
+      sendAbortRef.current?.abort()
+      void stopVoice()
+    }
+  }, [])
+
+  const voiceActive = voicePhase !== 'idle'
 
   async function loadMessagesFor(id: number) {
     setLoadingMessages(true)
@@ -215,9 +245,11 @@ export function AIAssistantPage() {
     }
   }, [])
 
+  const lastText = messages[messages.length - 1]?.text ?? ''
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length, loadingMessages])
+  }, [messages.length, lastText, loadingMessages])
 
   function handleChatMove(e: PointerEvent<HTMLDivElement>) {
     const el = chatRef.current
@@ -238,29 +270,147 @@ export function AIAssistantPage() {
   async function send() {
     const text = input.trim()
     if (!text || sending) return
+    if (voiceActive) void stopVoice()
+    setVoiceError(null)
     const userMsgId = Date.now()
+    const replyMsgId = userMsgId + 1
     setMessages((prev) => [...prev, { id: userMsgId, role: 'user', text }])
     setInput('')
     setSending(true)
 
+    const controller = new AbortController()
+    sendAbortRef.current = controller
+
     try {
-      const res = await api.post<{ reply: string; meta?: ChatMeta; session?: { id: number } }>(
-        '/api/assistant/chat',
-        { message: text, sessionId },
-      )
-      if (res.session?.id) setSessionId(res.session.id)
-      setMessages((prev) => prev.map((m) => (m.id === userMsgId ? { ...m, meta: res.meta } : m)))
-      setMessages((prev) => [...prev, { id: userMsgId + 1, role: 'assistant', text: res.reply, meta: res.meta }])
-      void refreshSessions()
-    } catch {
-      const fallbackMsg: Message = { id: userMsgId + 1, role: 'assistant', text: 'Got it. Share more whenever you\'re ready — academics, well-being, campus life, or career.', meta: undefined }
-      setMessages((prev) => [...prev, fallbackMsg])
+      await streamChat({
+        message: text,
+        sessionId,
+        signal: controller.signal,
+        onMeta: (meta) => {
+          setMessages((prev) => prev.map((m) => (m.id === userMsgId ? { ...m, meta } : m)))
+        },
+        onDelta: (value) => {
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === replyMsgId)
+            if (exists) {
+              return prev.map((m) => (m.id === replyMsgId ? { ...m, text: value } : m))
+            }
+            return [...prev, { id: replyMsgId, role: 'assistant', text: value }]
+          })
+        },
+        onRevision: (value) => {
+          setMessages((prev) => prev.map((m) => (m.id === replyMsgId ? { ...m, text: value } : m)))
+        },
+        onDone: ({ reply, meta, session: updated }) => {
+          if (updated?.id) setSessionId(updated.id)
+          setMessages((prev) => {
+            const withoutReply = prev.filter((m) => m.id !== replyMsgId)
+            return [
+              ...withoutReply.map((m) => (m.id === userMsgId ? { ...m, meta } : m)),
+              { id: replyMsgId, role: 'assistant', text: reply, meta: undefined },
+            ]
+          })
+          void refreshSessions()
+        },
+      })
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setMessages((prev) => {
+          const hasReply = prev.some((m) => m.id === replyMsgId)
+          if (hasReply) return prev
+          return [
+            ...prev,
+            { id: replyMsgId, role: 'assistant', text: 'Got it. Share more whenever you\'re ready — academics, well-being, campus life, or career.' },
+          ]
+        })
+      }
     } finally {
+      if (sendAbortRef.current === controller) sendAbortRef.current = null
       setSending(false)
     }
   }
 
+  async function handleMicToggle() {
+    setVoiceError(null)
+    if (isVoiceActive()) {
+      setVoicePhase('idle')
+      setVoiceStage({ transcript: '', reply: '' })
+      await stopVoice()
+      return
+    }
+    try {
+      setVoiceStage({ transcript: '', reply: '' })
+      await startVoice({
+        getSessionId: () => sessionIdRef.current,
+        onPhase: setVoicePhase,
+        onTurnStart: ({ transcript, meta }) => {
+          // Fires once per event type (transcript, then meta) — the turn must
+          // be created only once so both land on the same message ids.
+          if (!voiceTurnRef.current) {
+            const ts = Date.now()
+            voiceTurnRef.current = { userId: ts, replyId: ts + 1, text: '' }
+          }
+          const turn = voiceTurnRef.current
+          if (transcript) {
+            setVoiceStage((s) => ({ ...s, transcript }))
+            setMessages((prev) =>
+              prev.some((m) => m.id === turn.userId)
+                ? prev
+                : [...prev, { id: turn.userId, role: 'user', text: transcript }],
+            )
+          }
+          if (meta) {
+            setMessages((prev) => prev.map((m) => (m.id === turn.userId ? { ...m, meta } : m)))
+          }
+        },
+        onDelta: (value) => {
+          const turn = voiceTurnRef.current
+          if (!turn) return
+          turn.text = value
+          setVoiceStage((s) => ({ ...s, reply: value }))
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === turn.replyId)
+            if (exists) {
+              return prev.map((m) => (m.id === turn.replyId ? { ...m, text: value } : m))
+            }
+            return [...prev, { id: turn.replyId, role: 'assistant', text: value }]
+          })
+        },
+        onRevision: (value) => {
+          const turn = voiceTurnRef.current
+          if (!turn) return
+          turn.text = value
+          setVoiceStage((s) => ({ ...s, reply: value }))
+          setMessages((prev) => prev.map((m) => (m.id === turn.replyId ? { ...m, text: value } : m)))
+        },
+        onTurnEnd: ({ reply, meta, sessionId: nextSessionId }) => {
+          const turn = voiceTurnRef.current
+          voiceTurnRef.current = null
+          if (nextSessionId) setSessionId(nextSessionId)
+          if (!turn) return
+          setMessages((prev) => {
+            const withoutReply = prev.filter((m) => m.id !== turn.replyId)
+            return [
+              ...withoutReply.map((m) => (m.id === turn.userId ? { ...m, meta } : m)),
+              { id: turn.replyId, role: 'assistant', text: reply, meta: undefined },
+            ]
+          })
+          void refreshSessions()
+        },
+        onError: (message) => {
+          voiceTurnRef.current = null
+          setVoiceError(message)
+          setVoicePhase('idle')
+        },
+      })
+    } catch (err) {
+      setVoiceError(err instanceof Error ? err.message : 'Could not start voice.')
+    }
+  }
+
   async function newChat() {
+    if (isVoiceActive()) void stopVoice()
+    setVoiceError(null)
     try {
       const res = await api.post<ChatSession>('/api/assistant/sessions')
       const created: ChatSession = {
@@ -281,6 +431,8 @@ export function AIAssistantPage() {
 
   async function selectSession(id: number) {
     if (id === sessionId) return
+    if (isVoiceActive()) void stopVoice()
+    setVoiceError(null)
     setSessionId(id)
     setMessages([])
     await loadMessagesFor(id)
@@ -430,7 +582,32 @@ export function AIAssistantPage() {
             aria-hidden
           />
           <div className="relative z-10 flex flex-1 flex-col">
-            <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
+            {voiceActive ? (
+              /* Voice stage: the orb is the interface, text is secondary. */
+              <div className="flex flex-1 flex-col items-center justify-center gap-7 overflow-y-auto px-6 py-8">
+                <VoiceOrb phase={voicePhase} size={288} />
+
+                <div className="w-full max-w-xl text-center">
+                  {voiceStage.transcript && (
+                    <p className="mb-3 text-[13px] leading-relaxed text-muted italic">
+                      “{voiceStage.transcript}”
+                    </p>
+                  )}
+                  {voiceStage.reply ? (
+                    <p className="text-[17px] leading-relaxed text-ink">{voiceStage.reply}</p>
+                  ) : voicePhase === 'processing' ? (
+                    <p className="text-[13px] text-ice/40">Thinking…</p>
+                  ) : voicePhase === 'listening' && !voiceStage.transcript ? (
+                    <p className="text-[13px] text-ice/40">Listening — just start talking.</p>
+                  ) : null}
+                </div>
+
+                <p className="text-[11px] text-muted/80">
+                  Speak any time to interrupt · tap the mic to end
+                </p>
+              </div>
+            ) : (
+              <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
               {loading && (
                 <p className="py-8 text-center text-sm text-ice/40">Loading conversation…</p>
               )}
@@ -471,16 +648,22 @@ export function AIAssistantPage() {
                 </div>
               ))}
 
-              {sending && (
+              {sending && messages[messages.length - 1]?.role !== 'assistant' && (
                 <div className="flex items-center gap-2 text-xs text-ice/40">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ice/50" />
                   Routing intent, checking safety, retrieving context…
                 </div>
               )}
               <div ref={bottomRef} />
-            </div>
+              </div>
+            )}
 
             <div className="border-t border-ice/10 p-3 sm:p-4">
+              {voiceError && (
+                <div className="mb-2 flex items-center gap-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-1.5">
+                  <span className="truncate text-[10px] text-rose-400/90">{voiceError}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2.5 rounded-lg border border-ice/10 bg-thaw px-2 py-1.5 focus-within:border-ice/30 focus-within:ring-2 focus-within:ring-violet/20">
                 <textarea
                   rows={1}
@@ -496,6 +679,31 @@ export function AIAssistantPage() {
                   placeholder="What's on your mind?"
                   className="max-h-32 flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-snug text-ice/75 outline-none placeholder:text-ice/35 disabled:opacity-50"
                 />
+                <button
+                  type="button"
+                  onClick={handleMicToggle}
+                  disabled={voicePhase === 'processing'}
+                  title={voiceActive ? 'Stop voice' : 'Start a voice conversation'}
+                  aria-label={voiceActive ? 'Stop voice conversation' : 'Start a voice conversation'}
+                  className={clsx(
+                    'mb-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition disabled:opacity-50',
+                    voiceActive
+                      ? voicePhase === 'processing' || voicePhase === 'ready'
+                        ? 'bg-violet-deep/25 text-violet-soft'
+                        : 'voice-pulse bg-rose-500/20 text-rose-400 hover:bg-rose-500/30'
+                      : 'bg-violet-deep/25 text-violet-soft hover:bg-violet/30 hover:text-violet-soft',
+                  )}
+                >
+                  {voicePhase === 'processing' || voicePhase === 'ready' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : voicePhase === 'speaking' ? (
+                    <Volume2 className="h-3.5 w-3.5" />
+                  ) : voiceActive ? (
+                    <Square className="h-3 w-3" />
+                  ) : (
+                    <Mic className="h-3.5 w-3.5" />
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={send}

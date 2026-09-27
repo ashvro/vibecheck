@@ -1,10 +1,13 @@
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
 const HF_URL = (process.env.HF_BASE_URL || 'https://router.huggingface.co/hf-inference').replace(/\/+$/, '')
 
 export const modelConfig = {
   groqKey: process.env.GROQ_API_KEY || '',
   hfKey: process.env.HF_API_KEY || '',
   groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+  groqFastModel: process.env.GROQ_FAST_MODEL || 'openai/gpt-oss-20b',
+  groqSttModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
   emotionModel: process.env.HF_EMOTION_MODEL || 'SamLowe/roberta-base-go_emotions',
   embedModel: process.env.HF_EMBED_MODEL || 'BAAI/bge-base-en-v1.5',
 }
@@ -17,13 +20,22 @@ export function hasHf() {
   return !!modelConfig.hfKey
 }
 
-async function fetchWithTimeout(url, options = {}, ms = 30000) {
+function abortError() {
+  return Object.assign(new Error('Request aborted'), { name: 'AbortError' })
+}
+
+async function fetchWithTimeout(url, options = {}, ms = 30000, externalSignal = null) {
   const RETRYABLE = new Set([429, 500, 502, 503, 504])
   let lastErr = null
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (externalSignal?.aborted) throw abortError()
+
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), ms)
+    const onExternalAbort = () => ctrl.abort()
+    externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
+
     try {
       const res = await fetch(url, { ...options, signal: ctrl.signal })
       if (!res.ok) {
@@ -39,6 +51,7 @@ async function fetchWithTimeout(url, options = {}, ms = 30000) {
       }
       return res
     } catch (err) {
+      if (externalSignal?.aborted) throw abortError()
       if (err.name === 'AbortError' && attempt < 2) {
         lastErr = err
         await new Promise((r) => setTimeout(r, (attempt + 1) * 1200))
@@ -47,6 +60,7 @@ async function fetchWithTimeout(url, options = {}, ms = 30000) {
       throw err
     } finally {
       clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', onExternalAbort)
     }
   }
   throw lastErr ?? new Error('Request failed')
@@ -70,19 +84,22 @@ function extractJson(content) {
   throw new Error('Could not parse JSON from model response')
 }
 
-export async function groqChat({ system, user, history = [], json = false, temperature = 0.4, maxTokens = 1024 }) {
-  if (!hasGroq()) throw Object.assign(new Error('GROQ_API_KEY not configured'), { status: 503 })
-
+function buildMessages({ system, user, history = [] }) {
   const messages = []
   for (const h of history) {
     if (h && h.role && h.content) messages.push({ role: h.role, content: String(h.content) })
   }
   if (system) messages.push({ role: 'system', content: system })
   if (user) messages.push({ role: 'user', content: user })
+  return messages
+}
+
+export async function groqChat({ system, user, history = [], json = false, temperature = 0.4, maxTokens = 1024, signal, model }) {
+  if (!hasGroq()) throw Object.assign(new Error('GROQ_API_KEY not configured'), { status: 503 })
 
   const body = {
-    model: modelConfig.groqModel,
-    messages,
+    model: model || modelConfig.groqModel,
+    messages: buildMessages({ system, user, history }),
     temperature,
     max_tokens: maxTokens,
   }
@@ -95,13 +112,104 @@ export async function groqChat({ system, user, history = [], json = false, tempe
       Authorization: `Bearer ${modelConfig.groqKey}`,
     },
     body: JSON.stringify(body),
-  }, 45000)
+  }, 45000, signal)
 
   const data = await res.json()
   const content = data?.choices?.[0]?.message?.content
   if (!content) throw new Error('GROQ returned no content')
   if (json) return extractJson(content)
   return content
+}
+
+export async function groqChatStream({ system, user, history = [], temperature = 0.4, maxTokens = 1024, onDelta, signal }) {
+  if (!hasGroq()) throw Object.assign(new Error('GROQ_API_KEY not configured'), { status: 503 })
+
+  const body = {
+    model: modelConfig.groqModel,
+    messages: buildMessages({ system, user, history }),
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+  }
+
+  const res = await fetchWithTimeout(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${modelConfig.groqKey}`,
+    },
+    body: JSON.stringify(body),
+  }, 45000, signal)
+
+  if (!res.body) throw new Error('GROQ returned an empty stream')
+
+  const decoder = new TextDecoder()
+  let pending = ''
+  let full = ''
+
+  for await (const chunk of res.body) {
+    if (signal?.aborted) throw abortError()
+    pending += decoder.decode(chunk, { stream: true })
+
+    const lines = pending.split('\n')
+    pending = lines.pop() ?? ''
+
+    for (const line of lines) {
+      const frame = line.trim()
+      if (!frame.startsWith('data:')) continue
+      const payload = frame.slice(5).trim()
+      if (payload === '[DONE]') return full
+      if (!payload) continue
+
+      let delta
+      try {
+        delta = JSON.parse(payload)?.choices?.[0]?.delta
+      } catch {
+        continue
+      }
+      // Reasoning models emit delta.reasoning alongside delta.content — only take content.
+      const content = typeof delta?.content === 'string' ? delta.content : ''
+      if (!content) continue
+      full += content
+      onDelta?.(content, full)
+    }
+  }
+
+  if (pending.startsWith('data:')) {
+    const payload = pending.slice(5).trim()
+    if (payload && payload !== '[DONE]') {
+      try {
+        const content = JSON.parse(payload)?.choices?.[0]?.delta?.content
+        if (typeof content === 'string' && content) {
+          full += content
+          onDelta?.(content, full)
+        }
+      } catch {
+        /* trailing partial frame — ignore */
+      }
+    }
+  }
+
+  return full
+}
+
+export async function groqTranscribe({ buffer, mimeType = 'audio/wav', filename = 'voice.wav', signal }) {
+  if (!hasGroq()) throw Object.assign(new Error('GROQ_API_KEY not configured'), { status: 503 })
+
+  const form = new FormData()
+  form.append('model', modelConfig.groqSttModel)
+  form.append('file', new Blob([buffer], { type: mimeType }), filename)
+
+  const res = await fetchWithTimeout(GROQ_STT_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${modelConfig.groqKey}` },
+    body: form,
+  }, 45000, signal)
+
+  const data = await res.json()
+  const text = typeof data?.text === 'string' ? data.text.trim() : ''
+  if (!text) throw new Error('Groq returned no transcript')
+  return text
 }
 
 export async function hfRequest(model, payload, params = '', timeoutMs = 45000) {

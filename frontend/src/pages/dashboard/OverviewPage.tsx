@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { CrystalMark } from '../../components/CrystalMark'
+import { MlRiskCard } from '../../components/ml/MlRiskCard'
 import { api, getUser } from '../../lib/api'
 
 type StatCard = {
@@ -226,6 +227,10 @@ export function OverviewPage() {
           </div>
         ))}
       </div>
+
+      {/* Additive: the ML model card sits outside the existing stat grid so
+          the 2x2 layout and every current card stay exactly as they were. */}
+      <MlRiskCard />
 
       <section className="glass-ice p-6">
         <div className="flex items-center gap-2.5">

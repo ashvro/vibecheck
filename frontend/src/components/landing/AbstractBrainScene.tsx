@@ -1,7 +1,10 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Center, Environment, useGLTF } from '@react-three/drei'
+import { Center, useGLTF } from '@react-three/drei'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+
+useGLTF.setDecoderPath('/draco/')
 
 type GlassBrainProps = {
   reduceMotion: boolean
@@ -91,6 +94,26 @@ function AdaptiveDpr() {
   return null
 }
 
+function LocalEnvironment() {
+  const gl = useThree((state) => state.gl)
+  const scene = useThree((state) => state.scene)
+
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const background = new RoomEnvironment()
+    const envMap = pmrem.fromScene(background, 0.04).texture
+    scene.environment = envMap
+    scene.environmentIntensity = 0.5
+    return () => {
+      scene.environment = null
+      envMap.dispose()
+      pmrem.dispose()
+    }
+  }, [gl, scene])
+
+  return null
+}
+
 function Scene({
   reduceMotion,
   scrollBoost,
@@ -107,7 +130,7 @@ function Scene({
       <pointLight position={[1.5, 1.2, 2.5]} intensity={0.85} color="#d4c4f5" />
       <pointLight position={[-1, -1.5, 1]} intensity={0.4} color="#7c3aed" />
       <GlassBrain reduceMotion={reduceMotion} scrollBoost={scrollBoost} />
-      <Environment preset="city" environmentIntensity={0.5} resolution={128} />
+      <LocalEnvironment />
     </>
   )
 }
