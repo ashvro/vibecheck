@@ -291,7 +291,9 @@ STAGE-SPECIFIC BEHAVIOUR:
 
 EVIDENCE (only when retrieved — may be empty):
 ${evidenceUsed && evidence.length
-  ? `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence)}`
+  ? intent === 'academics'
+    ? `This is material from the student's own course textbook. Ground your explanation in it: use its terminology and cover the specific points it lists — if it enumerates advantages, features, or steps, include those points rather than substituting generic knowledge. Explain in your own friendly words; do not paste it verbatim as a wall of text.\n${formatEvidence(evidence)}`
+    : `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence)}`
   : intent === 'mental_health'
     ? 'No retrieved knowledge is available. Give gentle, general, safe guidance only. Where firm facts would normally come from sources (e.g. WHO self-help guidance, NHS Every Mind Matters, NIMH), name them as places to look rather than quoting specific claims.'
     : 'No reference material was retrieved. Answer from your own solid subject knowledge — be concrete and specific, with real examples, and never hedge just because no document was found.'}
@@ -382,6 +384,30 @@ function looksLikeUserDataQuestion(text) {
   const topic = /(grade|grading|marks|attendance|attended|percentage|mood|check-?in|club|post|posts?|course|enrolled|enrolment|enrollment|risk|ia1|ia2|sentiment|classes|submission|score)/.test(t)
   const asks = /(what|how|which|where|show|tell|list|do i|did i|am i|have i|is my|my)/.test(t)
   return topic && asks
+}
+
+/**
+ * Compact, displayable citation list for a reply: one entry per source document
+ * (so a student sees "from dbms.pdf", not a dozen chunk ids). Persisted on the
+ * assistant message and surfaced in `meta.sources` so the grounding is visible
+ * and verifiable long after the answer was generated.
+ */
+function evidenceSources(evidence) {
+  if (!Array.isArray(evidence) || !evidence.length) return []
+  const seen = new Set()
+  const sources = []
+  for (const item of evidence) {
+    if (!item?.source || seen.has(item.source)) continue
+    seen.add(item.source)
+    sources.push({
+      title: item.title ?? null,
+      label: String(item.source).split('/').pop(),
+      source: item.source,
+      category: item.category ?? null,
+    })
+    if (sources.length >= 3) break
+  }
+  return sources
 }
 
 /**
@@ -692,12 +718,17 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     },
   })
 
+  // Which textbook(s) grounded this reply — persisted so the "from your
+  // textbook" line survives a reload, not just the live stream.
+  const sources = evidenceSources(result.evidence)
+
   const assistantMessage = await prisma.chatMessage.create({
     data: {
       userId,
       sessionId: session.id,
       role: 'assistant',
       content: result.reply,
+      sources: sources.length ? JSON.stringify(sources) : null,
     },
   })
 
@@ -723,6 +754,7 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
       category: result.category,
       evidenceUsed: result.evidenceUsed,
       evidenceCount: result.evidence.length,
+      sources,
       verified: result.verified,
     },
     session: updated,

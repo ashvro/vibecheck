@@ -1,10 +1,18 @@
 import { getToken } from './api'
 
+export type StreamSource = {
+  title?: string | null
+  label: string
+  source: string
+  category?: string | null
+}
+
 export type StreamMeta = {
   intent?: string | null
   riskLevel?: string | null
   sentimentScore?: number | null
   emotion?: string | null
+  sources?: StreamSource[]
 }
 
 type DonePayload = {

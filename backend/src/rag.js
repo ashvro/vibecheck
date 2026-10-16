@@ -104,6 +104,16 @@ function normalizeCategory(cat) {
   return cat === 'crisis_safety' ? 'safety' : cat
 }
 
+/**
+ * Page markers ("-- 8 of 232 --") and near-empty fragments carry no meaning and
+ * otherwise waste a retrieval slot.
+ */
+function isJunkChunk(text = '') {
+  const t = text.trim()
+  if (t.length < 25) return true
+  return /^[-–—_\s]*\d+\s*(?:of|\/)\s*\d+[-–—_\s]*$/i.test(t)
+}
+
 export function loadChunks({ collections, categories } = {}) {
   const where = {}
   if (collections && collections.length) where.collection = { in: collections }
@@ -132,6 +142,7 @@ export async function retrieve(query, { collections, boosts = null, topK = 4 } =
 
   const scored = []
   for (const chunk of chunks) {
+    if (isJunkChunk(chunk.text)) continue
     let embed = null
     try {
       embed = JSON.parse(chunk.embedding)
@@ -161,6 +172,55 @@ export async function retrieve(query, { collections, boosts = null, topK = 4 } =
   return { results, bestScore: scored[0]?.score ?? 0, total: chunks.length }
 }
 
+/**
+ * Widen each hit with its immediate neighbours from the same source, then merge
+ * runs of adjacent chunks back into one passage. Small chunks keep retrieval
+ * precise, but a definition or a bulleted list (e.g. "Advantages of DBMS")
+ * usually spans several of them, so the model needs the surrounding window
+ * rather than isolated fragments.
+ */
+async function expandContext(hits, { radius = 1 } = {}) {
+  const byId = new Map()
+  for (const hit of hits) {
+    const rows = await prisma.knowledgeChunk.findMany({
+      where: { source: hit.source, id: { gte: hit.id - radius, lte: hit.id + radius } },
+      orderBy: { id: 'asc' },
+    })
+    for (const row of rows) {
+      if (isJunkChunk(row.text) || byId.has(row.id)) continue
+      byId.set(row.id, {
+        id: row.id,
+        source: row.source,
+        category: row.category,
+        title: row.title,
+        text: row.text,
+        score: hit.score,
+        vectorScore: hit.vectorScore,
+        lexicalScore: hit.lexicalScore,
+      })
+    }
+  }
+
+  const ordered = [...byId.values()].sort(
+    (a, b) => a.source.localeCompare(b.source) || a.id - b.id,
+  )
+
+  const merged = []
+  for (const row of ordered) {
+    const prev = merged[merged.length - 1]
+    if (prev && prev.source === row.source && row.id - prev.lastId <= 1) {
+      prev.text += ` ${row.text}`
+      prev.lastId = row.id
+      prev.score = Math.max(prev.score, row.score)
+    } else {
+      merged.push({ ...row, lastId: row.id })
+    }
+  }
+  return merged
+    .map(({ lastId, ...rest }) => rest)
+    .sort((a, b) => b.score - a.score)
+}
+
 const SUFFICIENCY_THRESHOLD = 0.3
 
 export async function resolveEvidence({ intent, message, category }) {
@@ -186,7 +246,11 @@ export async function resolveEvidence({ intent, message, category }) {
     }
   }
 
-  let attempt = await retrieve(message, { collections, boosts })
+  // Academic answers benefit from a couple more fragments, since a single
+  // textbook topic is often spread across several small chunks.
+  const topK = intent === 'academics' ? 5 : 4
+
+  let attempt = await retrieve(message, { collections, boosts, topK })
   const sufficiencyCheck = attempt.results.length > 0 && attempt.bestScore >= SUFFICIENCY_THRESHOLD
 
   if (!sufficiencyCheck) {
@@ -194,20 +258,23 @@ export async function resolveEvidence({ intent, message, category }) {
       intent === 'mental_health'
         ? `${message} support coping strategies self care wellbeing`
         : `${message}${subject ? ` ${subject}` : ''} ${intent} textbook explanation key concepts definition`
-    attempt = await retrieve(reformulated, { collections, boosts })
+    attempt = await retrieve(reformulated, { collections, boosts, topK })
   }
 
   const used = attempt.results.length > 0 && attempt.bestScore >= SUFFICIENCY_THRESHOLD
-  return { results: attempt.results, used, attempts: 2, total: attempt.total }
+  const results = used
+    ? await expandContext(attempt.results, { radius: intent === 'academics' ? 2 : 1 })
+    : attempt.results
+  return { results, used, attempts: 2, total: attempt.total }
 }
 
-export function formatEvidence(results, limit = 3) {
+export function formatEvidence(results, limit = 4) {
   if (!results || !results.length) return ''
   return results
     .slice(0, limit)
     .map(
       (r, i) =>
-        `[Doc ${i + 1}] title: ${r.title} · category: ${r.category} · relevance: ${r.score}\n${r.text.slice(0, 900)}`,
+        `[Doc ${i + 1}] title: ${r.title} · category: ${r.category} · relevance: ${r.score}\n${r.text.slice(0, 1600)}`,
     )
     .join('\n\n')
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import clsx from 'clsx'
-import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2, ChevronDown } from 'lucide-react'
+import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2, ChevronDown, BookOpen } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
 import VoiceOrb from '../../components/VoiceOrb'
 import { api } from '../../lib/api'
@@ -13,11 +13,19 @@ import {
   type VoicePhase,
 } from '../../lib/voice'
 
+type SourceRef = {
+  title?: string | null
+  label: string
+  source: string
+  category?: string | null
+}
+
 type ChatMeta = {
   intent?: string | null
   riskLevel?: string | null
   sentimentScore?: number | null
   emotion?: string | null
+  sources?: SourceRef[]
 }
 
 type Message = {
@@ -138,6 +146,32 @@ function SessionAvgIndicator({ pct, turns }: { pct: number; turns: number }) {
   )
 }
 
+/**
+ * Cites the textbook(s) an academic answer was grounded in. Academic replies
+ * only — mental-health and general answers are not document-grounded, so they
+ * show nothing rather than an empty or misleading badge.
+ */
+function SourceCitation({ sources }: { sources?: SourceRef[] }) {
+  if (!sources || !sources.length) return null
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <span className="inline-flex items-center gap-1 rounded border border-violet-soft/25 bg-violet-soft/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-violet-soft uppercase">
+        <BookOpen className="h-2.5 w-2.5" />
+        From your textbook
+      </span>
+      {sources.map((s) => (
+        <span
+          key={s.source}
+          title={s.source}
+          className="rounded border border-ice/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-ice/50"
+        >
+          {s.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 const GREETING = "Hey — I'm VibeCheck. Here for whatever's on your plate: deadlines, big feelings, career plans, or random 3am thoughts. What's up?"
 
 type BackendMessage = {
@@ -148,6 +182,17 @@ type BackendMessage = {
   riskLevel?: string | null
   label?: string | null
   score?: number | null
+  sources?: string | null
+}
+
+function parseSources(raw?: string | null): SourceRef[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
 }
 
 function mapBackend(m: BackendMessage): Message {
@@ -156,12 +201,13 @@ function mapBackend(m: BackendMessage): Message {
     riskLevel: m.riskLevel ?? null,
     emotion: m.label ?? null,
     sentimentScore: m.score ?? null,
+    sources: parseSources(m.sources),
   }
   return {
     id: m.id,
     role: m.role === 'user' ? 'user' : 'assistant',
     text: m.content,
-    meta: m.role === 'user' ? meta : undefined,
+    meta,
   }
 }
 
@@ -363,7 +409,7 @@ export function AIAssistantPage() {
             const withoutReply = prev.filter((m) => m.id !== replyMsgId)
             return [
               ...withoutReply.map((m) => (m.id === userMsgId ? { ...m, meta } : m)),
-              { id: replyMsgId, role: 'assistant', text: reply, meta: undefined },
+              { id: replyMsgId, role: 'assistant', text: reply, meta },
             ]
           })
           void refreshSessions()
@@ -445,7 +491,7 @@ export function AIAssistantPage() {
             const withoutReply = prev.filter((m) => m.id !== turn.replyId)
             return [
               ...withoutReply.map((m) => (m.id === turn.userId ? { ...m, meta } : m)),
-              { id: turn.replyId, role: 'assistant', text: reply, meta: undefined },
+              { id: turn.replyId, role: 'assistant', text: reply, meta },
             ]
           })
           void refreshSessions()
@@ -697,6 +743,7 @@ export function AIAssistantPage() {
                               ))
                             : msg.text}
                         </div>
+                        <SourceCitation sources={msg.meta?.sources} />
                         {sessionAvg[i] && (
                           <SessionAvgIndicator pct={sessionAvg[i]!.pct} turns={sessionAvg[i]!.turns} />
                         )}
