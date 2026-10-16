@@ -12,7 +12,14 @@ import {
 import { ttsProvider, synthesizeSpeech, isAbortError } from '../utils/tts.js'
 import { analyzeSentiment } from '../utils/sentiment.js'
 import { requireAuth } from '../middleware/auth.js'
-import { resolveEvidence, detectSupportCategory, formatEvidence, knowledgeStatus } from '../rag.js'
+import {
+  resolveEvidence,
+  detectSupportCategory,
+  detectSubject,
+  formatEvidence,
+  knowledgeStatus,
+  SUFFICIENCY_THRESHOLD,
+} from '../rag.js'
 import { buildUserContext } from '../userContext.js'
 
 export const assistantRoutes = Router()
@@ -391,12 +398,28 @@ function looksLikeUserDataQuestion(text) {
  * (so a student sees "from dbms.pdf", not a dozen chunk ids). Persisted on the
  * assistant message and surfaced in `meta.sources` so the grounding is visible
  * and verifiable long after the answer was generated.
+ *
+ * Two guards keep the citation honest:
+ *  - If the question names a subject (a "3NF" question -> dbms), only that
+ *    textbook is cited. A stray OS/CNS chunk can out-score the right book on
+ *    raw similarity, and citing it would imply it backed the answer.
+ *  - Otherwise, only sources within 10% of the best hit are cited, so weak
+ *    keyword matches don't earn a citation.
  */
-function evidenceSources(evidence) {
+function evidenceSources(evidence, subject = null) {
   if (!Array.isArray(evidence) || !evidence.length) return []
+
+  const top = evidence.reduce((max, e) => Math.max(max, e.score ?? 0), 0)
+  const floor = Math.max(SUFFICIENCY_THRESHOLD, top * 0.9)
+  const subjectPool = subject ? evidence.filter((e) => e.category === subject) : []
+  const pool = subjectPool.length
+    ? subjectPool
+    : evidence.filter((e) => (e.score ?? 0) >= floor)
+  const chosen = pool.length ? pool : evidence
+
   const seen = new Set()
   const sources = []
-  for (const item of evidence) {
+  for (const item of chosen) {
     if (!item?.source || seen.has(item.source)) continue
     seen.add(item.source)
     sources.push({
@@ -718,9 +741,15 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     },
   })
 
-  // Which textbook(s) grounded this reply — persisted so the "from your
-  // textbook" line survives a reload, not just the live stream.
-  const sources = evidenceSources(result.evidence)
+  // Which textbook grounded this reply — persisted so the "from your textbook"
+  // line survives a reload, not just the live stream. Academic answers only:
+  // well-being and general replies aren't textbook-grounded, so they must not
+  // carry a citation. Academic questions are scoped to the subject they name so
+  // only that book is cited.
+  const sources =
+    result.intent === 'academics'
+      ? evidenceSources(result.evidence, detectSubject(text))
+      : []
 
   const assistantMessage = await prisma.chatMessage.create({
     data: {
