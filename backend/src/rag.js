@@ -56,7 +56,7 @@ export function detectSupportCategory(text = '') {
  * on the OS textbook rather than whichever book happens to share a word.
  */
 const SUBJECT_RULES = [
-  ['dsa', ['data structure', 'algorithm', 'algorithms', 'dsa', 'linked list', 'binary tree', 'binary search tree', 'graph', 'sorting', 'quicksort', 'mergesort', 'stack', 'queue', 'heap', 'hash', 'recursion', 'dynamic programming', 'big o', 'time complexity', 'space complexity', 'traversal']],
+  ['dsa', ['data structure', 'algorithm', 'algorithms', 'dsa', 'array', 'arrays', 'linked list', 'binary tree', 'binary search tree', 'graph', 'sorting', 'quicksort', 'mergesort', 'stack', 'queue', 'heap', 'hash', 'recursion', 'dynamic programming', 'big o', 'time complexity', 'space complexity', 'traversal']],
   ['dbms', ['dbms', 'database', 'databases', 'sql', 'normalization', 'normal form', '1nf', '2nf', '3nf', 'bcnf', 'boyce-codd', 'first normal', 'second normal', 'third normal', 'transaction', 'acid', 'relational', 'er diagram', 'entity relationship', 'indexing', 'primary key', 'foreign key', 'sql query', 'relational algebra', 'concurrency control']],
   ['os', ['operating system', 'operating systems', 'process scheduling', 'scheduling', 'deadlock', 'paging', 'virtual memory', 'page replacement', 'thread', 'threads', 'semaphore', 'mutex', 'cpu scheduling', 'context switch', 'file system', 'memory management', 'round robin', 'thrashing']],
   ['cns', ['computer network', 'computer networks', 'networking', 'cns', 'tcp', 'udp', 'ip address', 'osi', 'routing', 'subnet', 'ethernet', 'dns', 'http', 'socket', 'packet', 'router', 'network layer', 'transport layer', 'application layer', 'data link', 'congestion control', 'sliding window']],
