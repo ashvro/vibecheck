@@ -11,6 +11,9 @@ dist/
 # data
 backend/data/
 
+# local model weights (transformers.js)
+backend/.cache/
+
 # env
 .env
 .env.*

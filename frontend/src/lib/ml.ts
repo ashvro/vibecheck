@@ -21,16 +21,6 @@ export type MlPrediction = {
   model: string
 }
 
-export type MlStudent = MlPrediction & {
-  id: number
-  name?: string | null
-  sentiment: number | null
-  attendance: number | null
-  cgpa: number | null
-  subjectCount: number
-  subjects: string[]
-}
-
 export type MlModelInfo = {
   version: string
   trainedAt: string
@@ -63,13 +53,11 @@ export type MlSummary = {
 
 export const mlApi = {
   modelInfo: () => api.get<MlModelInfo>('/api/analytics/ml/model-info'),
-  riskStudents: (params?: { risk?: string; missing?: string }) => {
-    const q = new URLSearchParams()
-    if (params?.risk) q.set('risk', params.risk)
-    if (params?.missing) q.set('missing', params.missing)
-    const suffix = q.toString() ? `?${q}` : ''
-    return api.get<MlStudent[]>(`/api/analytics/ml/risk-students${suffix}`)
-  },
+  /**
+   * The viewer's own prediction, for the dashboard card. There is deliberately
+   * no roster endpoint here: per-student records are served by
+   * analyticsApi.insights(), which scopes them by role.
+   */
   summary: () => api.get<MlSummary>('/api/analytics/ml/summary'),
   predict: (input: { sentiment?: number; attendance?: number; cgpa?: number }) =>
     api.post<MlPrediction>('/api/analytics/ml/predict', input),

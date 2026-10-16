@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import clsx from 'clsx'
-import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2 } from 'lucide-react'
+import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2, ChevronDown } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
 import VoiceOrb from '../../components/VoiceOrb'
 import { api } from '../../lib/api'
@@ -72,9 +72,7 @@ function MoodBars({ className }: { className?: string }) {
 
 function MetaChips({ meta }: { meta?: ChatMeta }) {
   if (!meta) return null
-  const hasMeta = meta.intent || meta.riskLevel
-  const hasSentiment = meta.sentimentScore != null
-  if (!hasMeta && !hasSentiment) return null
+  if (!meta.intent && !meta.riskLevel) return null
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -93,37 +91,54 @@ function MetaChips({ meta }: { meta?: ChatMeta }) {
           {meta.riskLevel} risk
         </span>
       )}
-      {hasSentiment && (
-        <span className="flex items-center gap-1 rounded border border-ice/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-ice/50 uppercase">
-          <span className={clsx('h-1 w-1 rounded-full', meta.sentimentScore! >= 0.6 ? 'bg-emerald-soft' : meta.sentimentScore! >= 0.4 ? 'bg-amber-gentle' : 'bg-rose-400')} />
-          {meta.emotion ?? 'sentiment'} · {(meta.sentimentScore! * 100).toFixed(0)}%
-        </span>
-      )}
     </div>
   )
 }
 
-function SentimentIndicator({ score }: { score: number }) {
+/** Same thresholds the well-being accents use everywhere: green/amber/rose. */
+function sentimentTone(score: number) {
+  return score >= 0.6 ? 'bg-emerald-soft' : score >= 0.4 ? 'bg-amber-gentle' : 'bg-rose-400'
+}
+
+function SentimentIndicator({ score, emotion }: { score: number; emotion?: string | null }) {
   const pct = Math.round(score * 100)
-  const tone =
-    score >= 0.6
-      ? 'bg-emerald-soft'
-      : score >= 0.4
-        ? 'bg-amber-gentle'
-        : 'bg-rose-400'
   return (
-    <div className="mt-1.5 flex items-center gap-2">
+    <div className="mt-1.5 flex items-center gap-2" title={`Well-being signal ${pct}%`}>
       <div className="h-1 w-14 overflow-hidden rounded-full bg-ice/10">
-        <div className={clsx('h-full rounded-full', tone)} style={{ width: `${pct}%` }} />
+        <div className={clsx('h-full rounded-full', sentimentTone(score))} style={{ width: `${pct}%` }} />
       </div>
-      <span className="font-mono text-[9px] tracking-wider text-ice/40">
-        sentiment {score.toFixed(2)}
+      <span className="font-mono text-[9px] tracking-wider text-ice/40 uppercase">
+        {emotion ?? 'well-being'} · {pct}%
       </span>
     </div>
   )
 }
 
-const GREETING = "Hey — I'm here when you need clarity. What's on your mind?"
+/**
+ * The running average of the session's well-being turns, shown under each
+ * reply. This is the number the assistant rows and the analytics well-being
+ * card report, so a student can watch it settle as the conversation goes.
+ */
+function SessionAvgIndicator({ pct, turns }: { pct: number; turns: number }) {
+  return (
+    <div
+      className="mt-1.5 flex items-center gap-2"
+      title={`Average across ${turns} well-being ${turns === 1 ? 'turn' : 'turns'} in this session`}
+    >
+      <div className="h-1 w-14 overflow-hidden rounded-full bg-ice/10">
+        <div
+          className={clsx('h-full rounded-full', sentimentTone(pct / 100))}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="font-mono text-[9px] tracking-wider text-ice/40 uppercase">
+        session avg · {pct}%
+      </span>
+    </div>
+  )
+}
+
+const GREETING = "Hey — I'm VibeCheck. Here for whatever's on your plate: deadlines, big feelings, career plans, or random 3am thoughts. What's up?"
 
 type BackendMessage = {
   id: number
@@ -172,15 +187,17 @@ export function AIAssistantPage() {
   const [sending, setSending] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceError, setVoiceError] = useState<string | null>(null)
-  /** Live voice turn shown on the stage instead of the chat transcript. */
-  const [voiceStage, setVoiceStage] = useState({ transcript: '', reply: '' })
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null)
+  /** True while the transcript is parked at the newest message. */
+  const [atBottom, setAtBottom] = useState(true)
   const chatRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef<number | null>(null)
   const sendAbortRef = useRef<AbortController | null>(null)
   const voiceTurnRef = useRef<{ userId: number; replyId: number; text: string } | null>(null)
+  /** Set to force the next transcript render to the bottom even if the user scrolled up. */
+  const forceBottomRef = useRef(false)
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -245,11 +262,49 @@ export function AIAssistantPage() {
     }
   }, [])
 
-  const lastText = messages[messages.length - 1]?.text ?? ''
+  const lastMsg = messages[messages.length - 1]
+  const lastText = lastMsg?.text ?? ''
+
+  // Running session average, one entry per message: the plain mean of the
+  // well-being turns seen so far. Mirrors recomputeSessionSentiment on the
+  // server, so the final value equals the session score sent to analytics.
+  const sessionAvg = useMemo(() => {
+    const out: ({ pct: number; turns: number } | null)[] = []
+    let sum = 0
+    let turns = 0
+    for (const m of messages) {
+      if (m.role === 'user' && m.meta?.sentimentScore != null) {
+        sum += m.meta.sentimentScore
+        turns += 1
+      }
+      out.push(turns ? { pct: Math.round((sum / turns) * 100), turns } : null)
+    }
+    return out
+  }, [messages])
+
+  const scrollToBottom = (smooth: boolean) => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  }
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length, lastText, loadingMessages])
+    const el = scrollerRef.current
+    if (!el) return
+    if (!forceBottomRef.current && !atBottom) return
+    forceBottomRef.current = false
+    setAtBottom(true)
+    // Animate only when the user just sent something; follow a streaming
+    // reply instantly so the view keeps pace with the tokens.
+    scrollToBottom(lastMsg?.role === 'user' && lastText.length > 0)
+  }, [messages.length, lastText, lastMsg?.role, loadingMessages, voiceActive, atBottom])
+
+  function handleTranscriptScroll() {
+    const el = scrollerRef.current
+    if (!el) return
+    const parked = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+    setAtBottom(parked)
+  }
 
   function handleChatMove(e: PointerEvent<HTMLDivElement>) {
     const el = chatRef.current
@@ -277,6 +332,7 @@ export function AIAssistantPage() {
     setMessages((prev) => [...prev, { id: userMsgId, role: 'user', text }])
     setInput('')
     setSending(true)
+    forceBottomRef.current = true
 
     const controller = new AbortController()
     sendAbortRef.current = controller
@@ -320,7 +376,7 @@ export function AIAssistantPage() {
           if (hasReply) return prev
           return [
             ...prev,
-            { id: replyMsgId, role: 'assistant', text: 'Got it. Share more whenever you\'re ready — academics, well-being, campus life, or career.' },
+            { id: replyMsgId, role: 'assistant', text: 'Sorry — I lost connection there. Try that again and I\'ll answer straight away.' },
           ]
         })
       }
@@ -334,12 +390,11 @@ export function AIAssistantPage() {
     setVoiceError(null)
     if (isVoiceActive()) {
       setVoicePhase('idle')
-      setVoiceStage({ transcript: '', reply: '' })
+      voiceTurnRef.current = null
       await stopVoice()
       return
     }
     try {
-      setVoiceStage({ transcript: '', reply: '' })
       await startVoice({
         getSessionId: () => sessionIdRef.current,
         onPhase: setVoicePhase,
@@ -349,10 +404,10 @@ export function AIAssistantPage() {
           if (!voiceTurnRef.current) {
             const ts = Date.now()
             voiceTurnRef.current = { userId: ts, replyId: ts + 1, text: '' }
+            forceBottomRef.current = true
           }
           const turn = voiceTurnRef.current
           if (transcript) {
-            setVoiceStage((s) => ({ ...s, transcript }))
             setMessages((prev) =>
               prev.some((m) => m.id === turn.userId)
                 ? prev
@@ -367,7 +422,6 @@ export function AIAssistantPage() {
           const turn = voiceTurnRef.current
           if (!turn) return
           turn.text = value
-          setVoiceStage((s) => ({ ...s, reply: value }))
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === turn.replyId)
             if (exists) {
@@ -380,7 +434,6 @@ export function AIAssistantPage() {
           const turn = voiceTurnRef.current
           if (!turn) return
           turn.text = value
-          setVoiceStage((s) => ({ ...s, reply: value }))
           setMessages((prev) => prev.map((m) => (m.id === turn.replyId ? { ...m, text: value } : m)))
         },
         onTurnEnd: ({ reply, meta, sessionId: nextSessionId }) => {
@@ -396,6 +449,19 @@ export function AIAssistantPage() {
             ]
           })
           void refreshSessions()
+        },
+        onAborted: () => {
+          // Barge-in or mic stop cut the turn short. Keep whatever was already
+          // shown, drop an empty bubble, and release the turn so the next
+          // utterance starts a fresh pair of messages.
+          const turn = voiceTurnRef.current
+          voiceTurnRef.current = null
+          if (!turn) return
+          setMessages((prev) => {
+            const reply = prev.find((m) => m.id === turn.replyId)
+            if (reply && !reply.text.trim()) return prev.filter((m) => m.id !== turn.replyId)
+            return prev
+          })
         },
         onError: (message) => {
           voiceTurnRef.current = null
@@ -488,7 +554,7 @@ export function AIAssistantPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 gap-4 px-5 pt-5 pb-6 sm:px-6">
+      <div className="flex min-h-0 flex-1 gap-4 px-5 pt-5 pb-6 sm:px-6">
         {/* History sidebar */}
         <div
           ref={historyRef}
@@ -504,7 +570,7 @@ export function AIAssistantPage() {
             )}
             aria-hidden
           />
-          <div className="relative z-10 flex flex-1 flex-col">
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
             <div className="border-b border-ice/10 p-3">
               <button
                 type="button"
@@ -545,6 +611,19 @@ export function AIAssistantPage() {
                       {s.preview && (
                         <span className="mt-0.5 block truncate text-[10px] text-ice/40">{s.preview}</span>
                       )}
+                      {s.sentimentScore != null && (
+                        <span className="mt-1 flex items-center gap-1.5">
+                          <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-ice/10">
+                            <span
+                              className={clsx('block h-full rounded-full', sentimentTone(s.sentimentScore))}
+                              style={{ width: `${Math.round(s.sentimentScore * 100)}%` }}
+                            />
+                          </span>
+                          <span className="font-mono text-[9px] tracking-wider text-ice/40">
+                            well-being {Math.round(s.sentimentScore * 100)}%
+                          </span>
+                        </span>
+                      )}
                     </span>
                   </button>
                   <button
@@ -581,80 +660,87 @@ export function AIAssistantPage() {
             )}
             aria-hidden
           />
-          <div className="relative z-10 flex flex-1 flex-col">
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
             {voiceActive ? (
-              /* Voice stage: the orb is the interface, text is secondary. */
-              <div className="flex flex-1 flex-col items-center justify-center gap-7 overflow-y-auto px-6 py-8">
-                <VoiceOrb phase={voicePhase} size={288} />
-
-                <div className="w-full max-w-xl text-center">
-                  {voiceStage.transcript && (
-                    <p className="mb-3 text-[13px] leading-relaxed text-muted italic">
-                      “{voiceStage.transcript}”
-                    </p>
-                  )}
-                  {voiceStage.reply ? (
-                    <p className="text-[17px] leading-relaxed text-ink">{voiceStage.reply}</p>
-                  ) : voicePhase === 'processing' ? (
-                    <p className="text-[13px] text-ice/40">Thinking…</p>
-                  ) : voicePhase === 'listening' && !voiceStage.transcript ? (
-                    <p className="text-[13px] text-ice/40">Listening — just start talking.</p>
-                  ) : null}
-                </div>
-
-                <p className="text-[11px] text-muted/80">
-                  Speak any time to interrupt · tap the mic to end
-                </p>
+              /* Voice stage: the orb is the whole interface. Replies are spoken
+                 and the transcript lands in the conversation behind it, so no
+                 text is shown here. */
+              <div className="flex flex-1 items-center justify-center overflow-hidden px-6 py-8">
+                <VoiceOrb phase={voicePhase} size={320} />
               </div>
             ) : (
-              <div className="flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
-              {loading && (
-                <p className="py-8 text-center text-sm text-ice/40">Loading conversation…</p>
-              )}
-              {!loading && loadingMessages && messages.length === 0 && (
-                <p className="py-8 text-center text-sm text-ice/40">Loading messages…</p>
-              )}
-              {!loading && !loadingMessages && messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={clsx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
-                >
-                  {msg.role === 'assistant' ? (
-                    <div className="max-w-[90%]">
-                      <div className="chat-bubble-in min-h-[32px] rounded-lg border border-ice/10 bg-thaw px-3.5 py-2.5 text-sm leading-relaxed text-ice/75">
-                        {msg.text.includes('\n\n')
-                          ? msg.text.split(/\n{2,}/).map((para, i) => (
-                              <p key={i} className={i > 0 ? 'mt-2.5' : undefined}>
-                                {para}
-                              </p>
-                            ))
-                          : msg.text}
-                      </div>
-                      {msg.meta?.intent === 'mental_health' && msg.meta.sentimentScore != null && (
-                        <SentimentIndicator score={msg.meta.sentimentScore} />
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex max-w-[90%] items-start gap-2.5">
-                      <div className="flex-1">
-                        <div className="chat-bubble-in min-h-[32px] rounded-lg border border-ice/15 bg-thaw px-3.5 py-2 text-sm leading-snug whitespace-pre-wrap text-ice/85">
-                          {msg.text}
+              <div
+                ref={scrollerRef}
+                onScroll={handleTranscriptScroll}
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              >
+                <div className="space-y-5 p-4 sm:p-6">
+                {loading && (
+                  <p className="py-8 text-center text-sm text-ice/40">Loading conversation…</p>
+                )}
+                {!loading && loadingMessages && messages.length === 0 && (
+                  <p className="py-8 text-center text-sm text-ice/40">Loading messages…</p>
+                )}
+                {!loading && !loadingMessages && messages.map((msg, i) => (
+                  <div
+                    key={msg.id}
+                    className={clsx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
+                  >
+                    {msg.role === 'assistant' ? (
+                      <div className="max-w-[90%]">
+                        <div className="chat-bubble-in min-h-[32px] rounded-lg border border-ice/10 bg-thaw px-3.5 py-2.5 text-sm leading-relaxed text-ice/75">
+                          {msg.text.includes('\n\n')
+                            ? msg.text.split(/\n{2,}/).map((para, idx) => (
+                                <p key={idx} className={idx > 0 ? 'mt-2.5' : undefined}>
+                                  {para}
+                                </p>
+                              ))
+                            : msg.text}
                         </div>
-                        <MetaChips meta={msg.meta} />
+                        {sessionAvg[i] && (
+                          <SessionAvgIndicator pct={sessionAvg[i]!.pct} turns={sessionAvg[i]!.turns} />
+                        )}
                       </div>
-                      <MoodBars className="mt-1 h-8" />
-                    </div>
-                  )}
-                </div>
-              ))}
+                    ) : (
+                      <div className="flex max-w-[90%] items-start gap-2.5">
+                        <div className="flex-1">
+                          <div className="chat-bubble-in min-h-[32px] rounded-lg border border-ice/15 bg-thaw px-3.5 py-2 text-sm leading-snug whitespace-pre-wrap text-ice/85">
+                            {msg.text}
+                          </div>
+                          <MetaChips meta={msg.meta} />
+                          {msg.meta?.sentimentScore != null && (
+                            <SentimentIndicator score={msg.meta.sentimentScore} emotion={msg.meta.emotion} />
+                          )}
+                        </div>
+                        <MoodBars className="mt-1 h-8" />
+                      </div>
+                    )}
+                  </div>
+                ))}
 
-              {sending && messages[messages.length - 1]?.role !== 'assistant' && (
-                <div className="flex items-center gap-2 text-xs text-ice/40">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ice/50" />
-                  Routing intent, checking safety, retrieving context…
+                {sending && messages[messages.length - 1]?.role !== 'assistant' && (
+                  <div className="flex items-center gap-2 text-xs text-ice/40">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ice/50" />
+                    Routing intent, checking safety, retrieving context…
+                  </div>
+                )}
                 </div>
-              )}
-              <div ref={bottomRef} />
+              </div>
+            )}
+
+            {!voiceActive && !atBottom && (
+              <div className="pointer-events-none relative -mt-12 flex justify-center pb-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    forceBottomRef.current = true
+                    scrollToBottom(true)
+                  }}
+                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-ice/15 bg-surface-2/95 px-3 py-1.5 text-[11px] text-ice/70 shadow-lg backdrop-blur transition hover:border-ice/30 hover:text-ice"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                  Latest
+                </button>
               </div>
             )}
 

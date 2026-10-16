@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { prisma } from '../prisma.js'
-import { requireRole } from '../middleware/auth.js'
+import { requireRole, requireAuth } from '../middleware/auth.js'
+import { acceptPdf, sendPdf, absoluteUploadPath, removeUpload, cleanDisplayName } from '../utils/uploads.js'
 
 export const lmsRoutes = Router()
 
@@ -81,9 +82,27 @@ lmsRoutes.get('/courses', async (req, res, next) => {
   }
 })
 
+/**
+ * Staff directory for the course-assignment picker. Admin only: it is the list
+ * a member of staff can be assigned to, and teachers cannot assign courses to
+ * anyone, so they have no reason to see the full staff roster.
+ */
+lmsRoutes.get('/staff', requireRole('admin'), async (req, res, next) => {
+  try {
+    const staff = await prisma.user.findMany({
+      where: { role: { in: ['teacher', 'admin'] } },
+      select: { id: true, name: true, role: true, email: true },
+      orderBy: { name: 'asc' },
+    })
+    res.json(staff)
+  } catch (err) {
+    next(err)
+  }
+})
+
 lmsRoutes.post('/courses', requireRole('teacher', 'admin'), async (req, res, next) => {
   try {
-    const { name, code, credits, instructor, color } = req.body || {}
+    const { name, code, credits, instructor, color, instructorId } = req.body || {}
     if (!name?.trim() || !code?.trim()) {
       return res.status(400).json({ error: 'name and code are required.' })
     }
@@ -92,17 +111,77 @@ lmsRoutes.post('/courses', requireRole('teacher', 'admin'), async (req, res, nex
       return res.status(409).json({ error: 'A course with this code already exists.' })
     }
 
+    // instructorId is what authorises course-scoped analytics, so it decides
+    // who can see the students enrolled here. A teacher may only claim a
+    // course for themselves; assigning someone else's course is admin-only.
+    let assignedId = null
+    if (instructorId != null && instructorId !== '') {
+      const target = Number(instructorId)
+      if (!Number.isInteger(target)) {
+        return res.status(400).json({ error: 'instructorId must be a user id.' })
+      }
+      const staff = await prisma.user.findUnique({ where: { id: target }, select: { id: true, role: true } })
+      if (!staff) return res.status(400).json({ error: 'Instructor not found.' })
+      if (!['teacher', 'admin'].includes(staff.role)) {
+        return res.status(400).json({ error: 'Instructor must be teaching staff.' })
+      }
+      if (req.user.role !== 'admin' && target !== req.user.id) {
+        return res.status(403).json({ error: 'Only an admin can assign a course to another member of staff.' })
+      }
+      assignedId = target
+    }
+
     const course = await prisma.course.create({
       data: {
         name: name.trim(),
         code: code.trim().toUpperCase(),
         credits: credits ? Math.max(1, Math.min(10, Number(credits))) : 3,
         instructor: instructor?.trim() || null,
+        instructorId: assignedId,
         color: color?.trim() || null,
       },
       include: { quizzes: true, assignments: true },
     })
     res.status(201).json(course)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * Assign or clear a course's instructor. Admin only, because this is the
+ * control that decides who may see the enrolled students in analytics.
+ */
+lmsRoutes.patch('/courses/:id/instructor', requireRole('admin'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id)
+    const course = await prisma.course.findUnique({ where: { id } })
+    if (!course) return res.status(404).json({ error: 'Course not found.' })
+
+    const { instructorId, instructor } = req.body || {}
+    let assignedId = null
+    if (instructorId != null && instructorId !== '') {
+      const target = Number(instructorId)
+      if (!Number.isInteger(target)) {
+        return res.status(400).json({ error: 'instructorId must be a user id.' })
+      }
+      const staff = await prisma.user.findUnique({ where: { id: target }, select: { id: true, role: true } })
+      if (!staff) return res.status(400).json({ error: 'Instructor not found.' })
+      if (!['teacher', 'admin'].includes(staff.role)) {
+        return res.status(400).json({ error: 'Instructor must be teaching staff.' })
+      }
+      assignedId = target
+    }
+
+    const updated = await prisma.course.update({
+      where: { id },
+      data: {
+        instructorId: assignedId,
+        ...(instructor !== undefined ? { instructor: instructor?.trim() || null } : {}),
+      },
+      select: { id: true, code: true, name: true, instructor: true, instructorId: true },
+    })
+    res.json(updated)
   } catch (err) {
     next(err)
   }
@@ -148,48 +227,351 @@ lmsRoutes.post('/quizzes', requireRole('teacher', 'admin'), async (req, res, nex
   }
 })
 
+const isStaff = (user) => user?.role === 'teacher' || user?.role === 'admin'
+
+/** Shapes a submission for the owning student (no staff-only grading fields). */
+function ownSubmission(s) {
+  if (!s) return null
+  return {
+    id: s.id,
+    assignmentId: s.assignmentId,
+    hasFile: Boolean(s.fileStoredAs),
+    fileName: s.fileName ?? null,
+    fileSize: s.fileSize ?? null,
+    notes: s.notes ?? null,
+    score: s.score ?? null,
+    feedback: s.feedback ?? null,
+    graded: Boolean(s.gradedAt),
+    submittedAt: s.createdAt,
+  }
+}
+
+function presentAssignment(a, { submission, submissionCount }) {
+  return {
+    id: a.id,
+    courseId: a.courseId,
+    course: a.course,
+    title: a.title,
+    due: a.due,
+    daysLeft: daysLeft(a.due),
+    instructions: a.instructions ?? null,
+    hasPdf: Boolean(a.pdfStoredAs),
+    pdfName: a.pdfName ?? null,
+    pdfSize: a.pdfSize ?? null,
+    createdAt: a.createdAt,
+    submitted: Boolean(submission),
+    submission: ownSubmission(submission),
+    // Staff-only tally; omitted entirely for students.
+    ...(submissionCount === undefined ? {} : { submissionCount }),
+  }
+}
+
 lmsRoutes.get('/assignments', async (req, res, next) => {
   try {
     const assignments = await prisma.assignment.findMany({
       include: { course: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ courseId: 'asc' }, { createdAt: 'asc' }],
     })
 
-    const submissions = req.user
-      ? await prisma.submission.findMany({
-          where: { userId: req.user.id, type: 'assignment' },
-          select: { courseId: true },
-        })
-      : []
-    const submittedCourseIds = new Map()
-    for (const s of submissions) {
-      submittedCourseIds.set(s.courseId, (submittedCourseIds.get(s.courseId) ?? 0) + 1)
-    }
+    const staff = isStaff(req.user)
+    const ids = assignments.map((a) => a.id)
+
+    const [mine, grouped] = await Promise.all([
+      req.user && !staff && ids.length
+        ? prisma.submission.findMany({ where: { userId: req.user.id, assignmentId: { in: ids } } })
+        : [],
+      ids.length
+        ? prisma.submission.groupBy({
+            by: ['assignmentId'],
+            where: { assignmentId: { in: ids } },
+            _count: { _all: true },
+          })
+        : [],
+    ])
+
+    const mineByAssignment = new Map(mine.map((s) => [s.assignmentId, s]))
+    const countByAssignment = new Map(grouped.map((g) => [g.assignmentId, g._count._all]))
 
     res.json(
-      assignments.map((a) => ({
-        ...a,
-        submitted: req.user ? (submittedCourseIds.get(a.courseId) ?? 0) > 0 : false,
-      })),
+      assignments.map((a) =>
+        presentAssignment(a, {
+          submission: mineByAssignment.get(a.id),
+          submissionCount: staff ? (countByAssignment.get(a.id) ?? 0) : undefined,
+        }),
+      ),
     )
   } catch (err) {
     next(err)
   }
 })
 
-lmsRoutes.post('/assignments', requireRole('teacher', 'admin'), async (req, res, next) => {
-  try {
-    const { courseId, title, due } = req.body || {}
-    if (!courseId || !title?.trim()) {
-      return res.status(400).json({ error: 'courseId and title are required.' })
-    }
-    const course = await prisma.course.findUnique({ where: { id: Number(courseId) } })
-    if (!course) return res.status(404).json({ error: 'Course not found.' })
+lmsRoutes.post(
+  '/assignments',
+  requireRole('teacher', 'admin'),
+  acceptPdf('assignments'),
+  async (req, res, next) => {
+    try {
+      const { courseId, title, due, instructions } = req.body || {}
+      if (!courseId || !title?.trim()) {
+        if (req.file) removeUpload('assignments', req.file.filename)
+        return res.status(400).json({ error: 'courseId and title are required.' })
+      }
+      const course = await prisma.course.findUnique({ where: { id: Number(courseId) } })
+      if (!course) {
+        if (req.file) removeUpload('assignments', req.file.filename)
+        return res.status(404).json({ error: 'Course not found.' })
+      }
 
-    const assignment = await prisma.assignment.create({
-      data: { courseId: Number(courseId), title: title.trim(), due: due || null },
+      const assignment = await prisma.assignment.create({
+        data: {
+          courseId: Number(courseId),
+          title: title.trim(),
+          due: due || null,
+          instructions: instructions?.trim() || null,
+          pdfName: req.file ? cleanDisplayName(req.file.originalname, 'assignment.pdf') : null,
+          pdfStoredAs: req.file?.filename ?? null,
+          pdfMime: req.file?.mimetype ?? null,
+          pdfSize: req.file?.size ?? null,
+        },
+        include: { course: true },
+      })
+      res.status(201).json(presentAssignment(assignment, {}))
+    } catch (err) {
+      if (req.file) removeUpload('assignments', req.file.filename)
+      next(err)
+    }
+  },
+)
+
+lmsRoutes.get('/assignments/:id/pdf', requireAuth, async (req, res, next) => {
+  try {
+    const assignment = await prisma.assignment.findUnique({ where: { id: Number(req.params.id) } })
+    if (!assignment) return res.status(404).json({ error: 'Assignment not found.' })
+    if (!assignment.pdfStoredAs) return res.status(404).json({ error: 'No PDF attached to this assignment.' })
+
+    const absolutePath = absoluteUploadPath('assignments', assignment.pdfStoredAs)
+    if (!absolutePath) return res.status(404).json({ error: 'File not found.' })
+    return sendPdf(res, { absolutePath, downloadName: assignment.pdfName, mime: assignment.pdfMime })
+  } catch (err) {
+    next(err)
+  }
+})
+
+lmsRoutes.patch(
+  '/assignments/:id',
+  requireRole('teacher', 'admin'),
+  acceptPdf('assignments'),
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id)
+      const existing = await prisma.assignment.findUnique({ where: { id } })
+      if (!existing) {
+        if (req.file) removeUpload('assignments', req.file.filename)
+        return res.status(404).json({ error: 'Assignment not found.' })
+      }
+
+      const { title, due, instructions, removePdf } = req.body || {}
+      const data = {}
+      if (title !== undefined) {
+        if (!title?.trim()) {
+          if (req.file) removeUpload('assignments', req.file.filename)
+          return res.status(400).json({ error: 'title cannot be empty.' })
+        }
+        data.title = title.trim()
+      }
+      if (due !== undefined) data.due = due || null
+      if (instructions !== undefined) data.instructions = instructions?.trim() || null
+
+      if (req.file) {
+        data.pdfName = cleanDisplayName(req.file.originalname, 'assignment.pdf')
+        data.pdfStoredAs = req.file.filename
+        data.pdfMime = req.file.mimetype
+        data.pdfSize = req.file.size
+        // Only drop the previous file once the new one is safely assigned.
+        removeUpload('assignments', existing.pdfStoredAs)
+      } else if (removePdf === 'true' || removePdf === true) {
+        data.pdfName = null
+        data.pdfStoredAs = null
+        data.pdfMime = null
+        data.pdfSize = null
+        removeUpload('assignments', existing.pdfStoredAs)
+      }
+
+      const assignment = await prisma.assignment.update({
+        where: { id },
+        data,
+        include: { course: true },
+      })
+      res.json(presentAssignment(assignment, {}))
+    } catch (err) {
+      if (req.file) removeUpload('assignments', req.file.filename)
+      next(err)
+    }
+  },
+)
+
+lmsRoutes.delete('/assignments/:id', requireRole('teacher', 'admin'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id)
+    const assignment = await prisma.assignment.findUnique({ where: { id } })
+    if (!assignment) return res.status(404).json({ error: 'Assignment not found.' })
+
+    const attachmentSubmissions = await prisma.submission.findMany({
+      where: { assignmentId: id, fileStoredAs: { not: null } },
+      select: { fileStoredAs: true },
     })
-    res.status(201).json(assignment)
+
+    await prisma.assignment.delete({ where: { id } })
+    removeUpload('assignments', assignment.pdfStoredAs)
+    for (const s of attachmentSubmissions) removeUpload('submissions', s.fileStoredAs)
+    res.json({ deleted: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+lmsRoutes.post(
+  '/assignments/:id/submit',
+  requireAuth,
+  acceptPdf('submissions'),
+  async (req, res, next) => {
+    try {
+      const assignmentId = Number(req.params.id)
+      const assignment = await prisma.assignment.findUnique({
+        where: { id: assignmentId },
+        select: { id: true, courseId: true, title: true },
+      })
+      if (!assignment) {
+        if (req.file) removeUpload('submissions', req.file.filename)
+        return res.status(404).json({ error: 'Assignment not found.' })
+      }
+
+      const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : null
+      if (!req.file && !notes) {
+        return res.status(400).json({ error: 'Attach a PDF or add a note before submitting.' })
+      }
+
+      const data = {
+        userId: req.user.id,
+        courseId: assignment.courseId,
+        assignmentId,
+        type: 'assignment',
+        notes: notes || null,
+        fileName: req.file ? cleanDisplayName(req.file.originalname, 'submission.pdf') : null,
+        fileStoredAs: req.file?.filename ?? null,
+        fileMime: req.file?.mimetype ?? null,
+        fileSize: req.file?.size ?? null,
+      }
+
+      const existing = await prisma.submission.findUnique({
+        where: { userId_assignmentId: { userId: req.user.id, assignmentId } },
+      })
+
+      if (existing) {
+        if (req.file) removeUpload('submissions', existing.fileStoredAs)
+        const updated = await prisma.submission.update({
+          where: { id: existing.id },
+          data: { ...data, score: null, feedback: null, gradedAt: null },
+        })
+        return res.json(ownSubmission(updated))
+      }
+
+      const created = await prisma.submission.create({ data })
+      return res.status(201).json(ownSubmission(created))
+    } catch (err) {
+      if (req.file) removeUpload('submissions', req.file.filename)
+      next(err)
+    }
+  },
+)
+
+lmsRoutes.get('/assignments/:id/submissions', requireRole('teacher', 'admin'), async (req, res, next) => {
+  try {
+    const assignmentId = Number(req.params.id)
+    const assignment = await prisma.assignment.findUnique({ where: { id: assignmentId } })
+    if (!assignment) return res.status(404).json({ error: 'Assignment not found.' })
+
+    const [submissions, enrollments] = await Promise.all([
+      prisma.submission.findMany({
+        where: { assignmentId },
+        include: { user: { select: { id: true, name: true, email: true, role: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.enrollment.findMany({
+        where: { courseId: assignment.courseId },
+        include: { user: { select: { id: true, name: true, email: true, role: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ])
+
+    const byUser = new Map(submissions.map((s) => [s.userId, s]))
+    res.json({
+      assignment: presentAssignment(assignment, { submissionCount: submissions.length }),
+      submissions: submissions.map((s) => ({
+        ...ownSubmission(s),
+        userId: s.userId,
+        user: s.user,
+      })),
+      // Everyone enrolled, so faculty can see who has not submitted yet.
+      roster: enrollments.map((e) => ({
+        userId: e.userId,
+        user: e.user,
+        submitted: byUser.has(e.userId),
+        submissionId: byUser.get(e.userId)?.id ?? null,
+      })),
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+lmsRoutes.get('/submissions/:id/file', requireAuth, async (req, res, next) => {
+  try {
+    const submission = await prisma.submission.findUnique({ where: { id: Number(req.params.id) } })
+    if (!submission) return res.status(404).json({ error: 'Submission not found.' })
+    // Student work is private: only the owner or staff may open it.
+    if (submission.userId !== req.user.id && !isStaff(req.user)) {
+      return res.status(403).json({ error: 'You do not have access to this submission.' })
+    }
+    if (!submission.fileStoredAs) return res.status(404).json({ error: 'No file attached to this submission.' })
+
+    const absolutePath = absoluteUploadPath('submissions', submission.fileStoredAs)
+    if (!absolutePath) return res.status(404).json({ error: 'File not found.' })
+    return sendPdf(res, {
+      absolutePath,
+      downloadName: submission.fileName,
+      mime: submission.fileMime,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+lmsRoutes.patch('/submissions/:id', requireRole('teacher', 'admin'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id)
+    const submission = await prisma.submission.findUnique({ where: { id } })
+    if (!submission) return res.status(404).json({ error: 'Submission not found.' })
+
+    const { score, feedback } = req.body || {}
+    const data = {}
+    if (score !== undefined) {
+      if (score === null || score === '') {
+        data.score = null
+        data.gradedAt = null
+      } else {
+        const numeric = Number(score)
+        if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) {
+          return res.status(400).json({ error: 'score must be a number between 0 and 100.' })
+        }
+        data.score = numeric
+        data.gradedAt = new Date()
+      }
+    }
+    if (feedback !== undefined) data.feedback = feedback?.trim() || null
+
+    const updated = await prisma.submission.update({ where: { id }, data })
+    res.json(ownSubmission(updated))
   } catch (err) {
     next(err)
   }

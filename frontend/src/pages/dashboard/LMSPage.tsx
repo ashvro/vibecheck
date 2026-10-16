@@ -1,9 +1,17 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import clsx from 'clsx'
-import { BookOpen, GraduationCap, LayoutDashboard, CheckCircle2, PlusCircle, UserCheck, FilePlus2, CalendarPlus, CalendarCheck, Trash2 } from 'lucide-react'
+import { BookOpen, GraduationCap, LayoutDashboard, CheckCircle2, PlusCircle, UserCheck, FilePlus2, CalendarPlus, CalendarCheck, Trash2, ClipboardList } from 'lucide-react'
 import { api } from '../../lib/api'
+import { sortAssignments } from '../../lib/assignments'
+import {
+  StudentAssignments,
+  FacultyAssignments,
+  CreateAssignmentForm,
+  SubmissionsPanel,
+  type Assignment as AssignmentModel,
+} from '../../components/lms/AssignmentBoard'
 
-type LmsTab = 'dashboard' | 'courses' | 'grades'
+type LmsTab = 'dashboard' | 'assignments' | 'courses' | 'grades'
 type RoleView = 'student' | 'faculty'
 
 type Course = {
@@ -12,10 +20,11 @@ type Course = {
   code: string
   credits: number
   instructor: string | null
+  instructorId: number | null
   color: string | null
   classCount: number
   quizzes: QuizLike[]
-  assignments: { id: number; title: string; due: string | null }[]
+  assignments: Assignment[]
 }
 
 type QuizLike = { id: number; title: string; date: string; daysLeft: number | null }
@@ -51,16 +60,11 @@ function todayStr(): string {
   return `${d.getFullYear()}-${m}-${day}`
 }
 
-type Assignment = {
-  id: number
-  title: string
-  due: string | null
-  submitted?: boolean
-  course: { code: string } | null
-}
+type Assignment = AssignmentModel
 
 const lmsTabs: { id: LmsTab; label: string; icon: typeof BookOpen }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'assignments', label: 'Assignments', icon: ClipboardList },
   { id: 'courses', label: 'Courses', icon: BookOpen },
   { id: 'grades', label: 'Grades', icon: GraduationCap },
 ]
@@ -96,6 +100,8 @@ function letterGrade(pct: number): string {
 
 export function LMSPage() {
   const [userRole, setUserRole] = useState<string>('student')
+  const [userId, setUserId] = useState<number | null>(null)
+  const [staff, setStaff] = useState<{ id: number; name: string; role: string }[]>([])
   const [role, setRole] = useState<RoleView>('student')
   const [tab, setTab] = useState<LmsTab>('dashboard')
   const [courses, setCourses] = useState<Course[]>([])
@@ -107,9 +113,18 @@ export function LMSPage() {
   const isStaff = userRole === 'teacher' || userRole === 'admin'
 
   useEffect(() => {
-    api.get<{ role: string }>('/api/auth/me').then((me) => {
+    api.get<{ role: string; id?: number }>('/api/auth/me').then((me) => {
       setUserRole(me.role)
+      if (typeof me.id === 'number') setUserId(me.id)
       if (me.role === 'teacher' || me.role === 'admin') setRole('faculty')
+      // Only admins can hand a course to another member of staff, so only
+      // admins need the staff directory.
+      if (me.role === 'admin') {
+        api
+          .get<{ id: number; name: string; role: string }[]>('/api/lms/staff')
+          .then(setStaff)
+          .catch(() => setStaff([]))
+      }
     }).catch(() => setUserRole('student'))
   }, [])
 
@@ -205,7 +220,21 @@ export function LMSPage() {
           ) : (
             <>
               {tab === 'dashboard' && (
-                <StudentDashboard courses={courses} enrolled={enrolled} quizzes={quizzes} assignments={assignments} />
+                <StudentDashboard
+                  courses={courses}
+                  enrolled={enrolled}
+                  quizzes={quizzes}
+                  assignments={assignments}
+                  onOpenAssignments={() => setTab('assignments')}
+                />
+              )}
+              {tab === 'assignments' && (
+                <StudentAssignmentsTab
+                  assignments={assignments}
+                  onChanged={(updated) =>
+                    setAssignments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
+                  }
+                />
               )}
               {tab === 'courses' && <StudentCourses courses={courses} enrolled={enrolled} toggleEnroll={toggleEnroll} />}
               {tab === 'grades' && <StudentGrades enrolled={enrolled} />}
@@ -214,7 +243,16 @@ export function LMSPage() {
         </>
       )}
 
-      {role === 'faculty' && <FacultyView courses={courses} onRefresh={loadAll} />}
+      {role === 'faculty' && (
+        <FacultyView
+          courses={courses}
+          assignments={assignments}
+          onRefresh={loadAll}
+          userRole={userRole}
+          userId={userId}
+          staff={staff}
+        />
+      )}
     </div>
   )
 }
@@ -243,18 +281,55 @@ function TabNav({ tab, setTab }: { tab: LmsTab; setTab: (t: LmsTab) => void }) {
   )
 }
 
+/* ─── Assignments tab ─── */
+function StudentAssignmentsTab({
+  assignments,
+  onChanged,
+}: {
+  assignments: Assignment[]
+  onChanged: (a: Assignment) => void
+}) {
+  const pending = assignments.filter((a) => !a.submitted).length
+  const withPdf = assignments.filter((a) => a.hasPdf).length
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="flex flex-wrap items-center gap-5">
+        <div>
+          <p className="text-xs text-muted">Assignments</p>
+          <p className="font-display text-2xl font-bold text-ink">{assignments.length}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Awaiting submission</p>
+          <p className="font-display text-2xl font-bold text-amber-gentle">{pending}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted">With PDF brief</p>
+          <p className="font-display text-2xl font-bold text-ice">{withPdf}</p>
+        </div>
+      </div>
+
+      <StudentAssignments assignments={assignments} onChanged={onChanged} />
+    </div>
+  )
+}
+
 /* ─── Dashboard ─── */
 function StudentDashboard({
   courses,
   enrolled,
   quizzes,
   assignments,
+  onOpenAssignments,
 }: {
   courses: Course[]
   enrolled: Enrollment[]
   quizzes: QuizLike[]
   assignments: Assignment[]
+  onOpenAssignments: () => void
 }) {
+  // Show what needs action first, not raw API order.
+  const topAssignments = sortAssignments(assignments)
   const cgpa = cgpa10(enrolled)
   const attendance = avgAttendance(enrolled)
   const myCourses = enrolled.map((e) => ({ rec: e, course: courses.find((c) => c.id === e.courseId) })).filter((x) => x.course)
@@ -340,29 +415,61 @@ function StudentDashboard({
 
         <div className="space-y-6">
           <div>
-            <div className="mb-3 flex items-center gap-2">
-              <BookOpen size={14} className="text-amber-gentle" />
-              <h2 className="text-sm font-semibold text-ink">Assignments</h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ClipboardList size={14} className="text-amber-gentle" />
+                <h2 className="text-sm font-semibold text-ink">Assignments</h2>
+              </div>
+              {assignments.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onOpenAssignments}
+                  className="font-mono text-[10px] tracking-wider text-ice uppercase transition hover:text-ice-bright"
+                >
+                  View all
+                </button>
+              )}
             </div>
             <div className="space-y-2">
               {assignments.length === 0 && (
                 <p className="rounded-lg border border-line p-3 text-sm text-muted">No assignments yet.</p>
               )}
-              {assignments.map((a) => (
-                <div key={a.id} className="glass-ice flex items-center justify-between rounded-lg p-3 text-sm">
+              {topAssignments.slice(0, 4).map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={onOpenAssignments}
+                  className="glass-ice flex w-full items-center justify-between gap-2 rounded-lg p-3 text-left text-sm transition hover:border-ice/25"
+                >
                   <div className="min-w-0">
                     <p className="font-mono text-[10px] text-ice">{a.course?.code ?? 'Course'}</p>
                     <p className="truncate text-sm font-medium text-ink">{a.title}</p>
                     <p className="text-xs text-muted">{a.due ? `Due ${a.due}` : 'No due date'}</p>
                   </div>
-                  <span className="shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase" style={{
-                    background: a.submitted ? 'rgba(157, 184, 168, 0.2)' : 'rgba(217, 119, 6, 0.2)',
-                    color: a.submitted ? '#9db8a8' : '#d97706',
-                  }}>
-                    {a.submitted ? 'submitted' : 'pending'}
-                  </span>
-                </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {a.hasPdf && (
+                      <span className="rounded border border-ice/20 bg-ice/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-ice uppercase">
+                        PDF
+                      </span>
+                    )}
+                    <span
+                      className={clsx(
+                        'rounded border px-2 py-0.5 font-mono text-[10px] tracking-wider uppercase',
+                        a.submitted
+                          ? 'border-emerald-soft/30 bg-emerald-soft/10 text-emerald-soft'
+                          : 'border-amber-gentle/40 bg-amber-gentle/10 text-amber-gentle',
+                      )}
+                    >
+                      {a.submitted ? 'submitted' : 'pending'}
+                    </span>
+                  </div>
+                </button>
               ))}
+              {assignments.length > 4 && (
+                <p className="px-1 text-center font-mono text-[10px] tracking-wider text-muted uppercase">
+                  +{assignments.length - 4} more in the Assignments tab
+                </p>
+              )}
             </div>
           </div>
 
@@ -536,7 +643,21 @@ function StudentGrades({ enrolled }: { enrolled: Enrollment[] }) {
 }
 
 /* ─── Faculty ─── */
-function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () => void }) {
+function FacultyView({
+  courses,
+  assignments,
+  onRefresh,
+  userRole,
+  userId,
+  staff,
+}: {
+  courses: Course[]
+  assignments: Assignment[]
+  onRefresh: () => void
+  userRole: string
+  userId: number | null
+  staff: { id: number; name: string; role: string }[]
+}) {
   const [courseId, setCourseId] = useState<number | null>(null)
   const [students, setStudents] = useState<Enrollment[]>([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -546,9 +667,19 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
   const [showQuizForm, setShowQuizForm] = useState(false)
   const [showAssignmentForm, setShowAssignmentForm] = useState(false)
   const [quizDraft, setQuizDraft] = useState({ title: '', date: '' })
-  const [assignmentDraft, setAssignmentDraft] = useState({ title: '', due: '' })
+  const [managing, setManaging] = useState<Assignment | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [panelError, setPanelError] = useState<string | null>(null)
   const [showCourseForm, setShowCourseForm] = useState(false)
-  const [courseDraft, setCourseDraft] = useState({ name: '', code: '', credits: '3', instructor: '', color: '#8b5cf6' })
+  const [courseDraft, setCourseDraft] = useState({
+    name: '',
+    code: '',
+    credits: '3',
+    instructor: '',
+    instructorId: '',
+    color: '#8b5cf6',
+  })
+  const isAdmin = userRole === 'admin'
   const [courseMsg, setCourseMsg] = useState('')
   const [showAttendance, setShowAttendance] = useState(false)
   const [attendanceData, setAttendanceData] = useState<{ sessions: AttendanceSession[]; enrollments: AttendanceStudent[] } | null>(null)
@@ -558,6 +689,9 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
   const [attSaved, setAttSaved] = useState(false)
 
   const selected = courses.find((c) => c.id === courseId) ?? null
+  const courseAssignments = courseId === null
+    ? []
+    : assignments.filter((a) => a.courseId === courseId)
 
   useEffect(() => {
     if (courses.length && courseId === null) {
@@ -688,20 +822,18 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
     }
   }
 
-  async function createAssignment(e: FormEvent) {
-    e.preventDefault()
-    if (!courseId || !assignmentDraft.title.trim()) return
+  async function deleteAssignment(a: Assignment) {
+    if (!window.confirm(`Delete "${a.title}"? This also removes every submission for it.`)) return
+    setDeletingId(a.id)
+    setPanelError(null)
     try {
-      await api.post('/api/lms/assignments', {
-        courseId,
-        title: assignmentDraft.title.trim(),
-        due: assignmentDraft.due || null,
-      })
-      setAssignmentDraft({ title: '', due: '' })
-      setShowAssignmentForm(false)
+      await api.del(`/api/lms/assignments/${a.id}`)
+      if (managing?.id === a.id) setManaging(null)
       onRefresh()
-    } catch {
-      /* drop */
+    } catch (err) {
+      setPanelError(err instanceof Error ? err.message : 'Could not delete the assignment.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -715,13 +847,33 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
         code: courseDraft.code.trim(),
         credits: Number(courseDraft.credits) || 3,
         instructor: courseDraft.instructor.trim() || null,
+        // A teacher creating a course owns it: without this the course has no
+        // instructorId, nobody can see its students in Analytics, and the
+        // teacher who just made it cannot act on the risk data. Admins pick the
+        // owner explicitly from the staff directory.
+        instructorId:
+          isAdmin && courseDraft.instructorId ? Number(courseDraft.instructorId) : isAdmin ? null : userId,
         color: courseDraft.color,
       })
-      setCourseDraft({ name: '', code: '', credits: '3', instructor: '', color: '#8b5cf6' })
+      setCourseDraft({ name: '', code: '', credits: '3', instructor: '', instructorId: '', color: '#8b5cf6' })
       setShowCourseForm(false)
       onRefresh()
     } catch (err) {
       setCourseMsg(err instanceof Error ? err.message : 'Unable to create course.')
+    }
+  }
+
+  async function assignInstructor(id: number, instructorId: string) {
+    const picked = staff.find((s) => String(s.id) === instructorId)
+    try {
+      await api.patch(`/api/lms/courses/${id}/instructor`, {
+        instructorId: instructorId === '' ? null : Number(instructorId),
+        // Keep the display name aligned with the real owner.
+        instructor: instructorId === '' ? null : (picked?.name ?? null),
+      })
+      onRefresh()
+    } catch (err) {
+      setCourseMsg(err instanceof Error ? err.message : 'Unable to assign instructor.')
     }
   }
 
@@ -805,12 +957,36 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
                 className="w-20 rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
               />
             </div>
-            <input
-              value={courseDraft.instructor}
-              onChange={(e) => setCourseDraft((d) => ({ ...d, instructor: e.target.value }))}
-              placeholder="Instructor"
-              className="w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
-            />
+            {isAdmin ? (
+              <select
+                value={courseDraft.instructorId}
+                onChange={(e) => {
+                  const picked = staff.find((s) => String(s.id) === e.target.value)
+                  setCourseDraft((d) => ({
+                    ...d,
+                    instructorId: e.target.value,
+                    // Keep the display name in step with the real owner so the
+                    // course list does not contradict the assignment.
+                    instructor: picked ? picked.name : d.instructor,
+                  }))
+                }}
+                className="w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
+              >
+                <option value="">No instructor assigned (no one can see its students)</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} · {s.role}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={courseDraft.instructor}
+                onChange={(e) => setCourseDraft((d) => ({ ...d, instructor: e.target.value }))}
+                placeholder="Instructor"
+                className="w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
+              />
+            )}
             <div className="flex items-center gap-2">
               <label className="font-mono text-[9px] tracking-[0.14em] text-muted uppercase">Color</label>
               <input
@@ -837,9 +1013,30 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color ?? '#8b5cf6' }} />
                 <span className="min-w-0 flex-1 truncate">
                   <span className="font-mono text-xs text-ice">{c.code}</span>{" "}
-                  <span className="font-medium text-ink">{c.name}</span>
-                  <span className="ml-1 text-xs text-muted">· {c.instructor ?? 'Faculty'} · {c.credits} cr</span>
+                  <span className="font-medium text-ink">{c.name}</span>{" "}
+                  {c.instructorId == null ? (
+                    // Unowned courses are invisible to every teacher, so the
+                    // gap has to be visible here rather than silently empty.
+                    <span className="ml-1 text-xs font-semibold text-amber-400">· unassigned</span>
+                  ) : (
+                    <span className="ml-1 text-xs text-muted">· {c.instructor ?? 'Faculty'} · {c.credits} cr</span>
+                  )}
                 </span>
+                {isAdmin && (
+                  <select
+                    value={c.instructorId == null ? '' : String(c.instructorId)}
+                    onChange={(e) => assignInstructor(c.id, e.target.value)}
+                    aria-label={`Assign instructor for ${c.code}`}
+                    className="shrink-0 rounded-md border border-ice/10 bg-thaw px-2 py-1 text-[10px] text-ink outline-none focus:border-ice/30"
+                  >
+                    <option value="">Unassigned</option>
+                    {staff.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   onClick={() => deleteCourse(c.id, c.code)}
@@ -875,25 +1072,45 @@ function FacultyView({ courses, onRefresh }: { courses: Course[]; onRefresh: () 
         </form>
       )}
 
-      {showAssignmentForm && (
-        <form onSubmit={createAssignment} className="glass-ice max-w-md space-y-3 rounded-lg p-4">
-          <p className="text-sm font-semibold text-ink">Add an assignment</p>
-          <input
-            value={assignmentDraft.title}
-            onChange={(e) => setAssignmentDraft((d) => ({ ...d, title: e.target.value }))}
-            placeholder="Assignment title"
-            className="w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
-          />
-          <input
-            type="date"
-            value={assignmentDraft.due}
-            onChange={(e) => setAssignmentDraft((d) => ({ ...d, due: e.target.value }))}
-            className="w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
-          />
-          <button type="submit" className="glow-cta rounded-lg bg-ice px-4 py-1.5 text-sm font-semibold text-thaw hover:bg-ice-bright">
-            Add assignment
-          </button>
-        </form>
+      {showAssignmentForm && courseId !== null && (
+        <CreateAssignmentForm
+          courseId={courseId}
+          onCancel={() => setShowAssignmentForm(false)}
+          onCreated={() => {
+            setShowAssignmentForm(false)
+            void onRefresh()
+          }}
+        />
+      )}
+
+      {panelError && (
+        <p className="rounded-md border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-400">
+          {panelError}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={14} className="text-amber-gentle" />
+          <h3 className="text-sm font-semibold text-ink">
+            Assignments{selected ? ` · ${selected.code}` : ''}
+          </h3>
+        </div>
+        <FacultyAssignments
+          assignments={courseAssignments}
+          onManage={setManaging}
+          onDelete={deleteAssignment}
+          onError={setPanelError}
+          busyId={deletingId}
+        />
+      </div>
+
+      {managing && (
+        <SubmissionsPanel
+          assignmentId={managing.id}
+          onClose={() => setManaging(null)}
+          onError={setPanelError}
+        />
       )}
 
       <div className="relative max-w-md">

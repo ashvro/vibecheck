@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PDFParse } from 'pdf-parse'
 import { prisma } from '../src/prisma.js'
-import { hfEmbed } from '../src/utils/llm.js'
+import { embed } from '../src/utils/llm.js'
 import { KNOWLEDGE_COLLECTIONS } from '../src/rag.js'
 
 try {
@@ -119,7 +119,7 @@ async function ingestFile(root, file) {
   try {
     const BATCH = 60
     for (let i = 0; i < chunks.length; i += BATCH) {
-      vectors.push(...(await hfEmbed(chunks.slice(i, i + BATCH))))
+      vectors.push(...(await embed(chunks.slice(i, i + BATCH))))
     }
   } catch (err) {
     return { file: rel, ok: false, chunks: 0, error: `embedding failed: ${err.message}` }
@@ -139,7 +139,12 @@ async function ingestFile(root, file) {
   }))
 
   await prisma.knowledgeChunk.deleteMany({ where: { source: rel } })
-  await prisma.knowledgeChunk.createMany({ data: rows })
+  // Insert in batches: a big textbook yields thousands of chunks, and one
+  // createMany would blow past SQLite's bind-parameter limit.
+  const INSERT_BATCH = 250
+  for (let i = 0; i < rows.length; i += INSERT_BATCH) {
+    await prisma.knowledgeChunk.createMany({ data: rows.slice(i, i + INSERT_BATCH) })
+  }
   return { file: rel, ok: true, chunks: rows.length, category }
 }
 

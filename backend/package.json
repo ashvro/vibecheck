@@ -18,6 +18,7 @@
     "seed": "node prisma/seed.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",

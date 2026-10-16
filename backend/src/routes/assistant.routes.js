@@ -5,11 +5,12 @@ import {
   groqChat,
   groqChatStream,
   groqTranscribe,
-  hfEmotionAnalysis,
+  analyzeEmotion,
   hasGroq,
   modelConfig,
 } from '../utils/llm.js'
 import { ttsProvider, synthesizeSpeech, isAbortError } from '../utils/tts.js'
+import { analyzeSentiment } from '../utils/sentiment.js'
 import { requireAuth } from '../middleware/auth.js'
 import { resolveEvidence, detectSupportCategory, formatEvidence, knowledgeStatus } from '../rag.js'
 import { buildUserContext } from '../userContext.js'
@@ -60,22 +61,23 @@ async function ensureSession(req, sessionId) {
 }
 
 async function recomputeSessionSentiment(sessionId) {
+  // Well-being is measured only from the turns the pipeline actually scored.
+  // Scoring is already scoped to mental-health and crisis turns at write time
+  // (see runPipeline), so "has a score" is exactly "is a well-being signal" —
+  // a session drifts across topics and the academic/general turns carry no
+  // score and drop out here.
+  //
+  // The value is a plain mean so it matches the running average shown beside
+  // each reply in the assistant (and the % in the analytics well-being card).
   const rows = await prisma.chatMessage.findMany({
-    where: { sessionId, role: 'user', intent: 'mental_health', score: { not: null } },
+    where: { sessionId, role: 'user', score: { not: null } },
     orderBy: { createdAt: 'asc' },
     select: { score: true },
   })
   if (!rows.length) return null
 
-  const n = rows.length
-  let weightedSum = 0
-  let weightSum = 0
-  rows.forEach((row, i) => {
-    const w = Math.pow(0.65, n - 1 - i)
-    weightedSum += row.score * w
-    weightSum += w
-  })
-  return Math.round((weightedSum / weightSum) * 100) / 100
+  const sum = rows.reduce((total, row) => total + row.score, 0)
+  return Math.round((sum / rows.length) * 100) / 100
 }
 
 assistantRoutes.get('/sessions', async (req, res, next) => {
@@ -159,21 +161,22 @@ assistantRoutes.get('/knowledge-status', async (req, res, next) => {
 /* ────────────────────── pipeline stages ────────────────────── */
 
 async function analyzeMessage(text, { signal } = {}) {
-  const system = `You are the analysis stage of a student support assistant. Analyse the student's latest message and return BOTH its intent and its safety risk in a single pass.
+  const system = `You are the analysis stage of a student support assistant. Read the student's latest message and return its intent and safety risk in one pass.
 
-INTENT (exactly one):
-- general: casual conversation, greetings, small talk, open-ended questions about the assistant.
-- career: placements, jobs, resumes, skills needed for roles, career roadmaps, internships.
-- academics: subjects, concepts, assignments, study plans, exams for coursework, doubts about a topic.
-- mental_health: stress, anxiety, mood, burnout, hopelessness, sleep, loneliness, emotions, well-being, overwhelm.
+INTENT (exactly one). Pick the single best fit. If more than one seems to apply, choose the one that lets the assistant help the student most — anything emotional or about how they FEEL is mental_health even when it mentions exams, grades, or a job.
+- mental_health: any emotion, feeling, stress, anxiety, mood, burnout, sleep, tiredness, loneliness, overwhelm, self-worth, motivation, or how they are doing. Also any hint of self-harm or not wanting to be here. Example: "I'm so stressed about my exam I can't sleep" is mental_health, NOT academics.
+- academics: a subject, concept, assignment, homework, study plan, or exam question where they want the material itself explained, solved, or understood, with NO emotional content. Example: "explain photosynthesis" or "how do I solve this integral".
+- career: placements, internships, jobs, resumes, interviews, skills, or career direction.
+- general: greetings, small talk, jokes, or open questions about the assistant; anything that is not the above.
 
-RISK LEVEL (assess ONLY for immediate safety concerns, independently of tone or negative emotion):
+RISK LEVEL (assess immediate safety only, independently of tone or negative emotion):
 - low: negative emotion, stress, or sadness alone.
-- moderate: significant distress, helplessness, or being unable to cope, but NO implicit or explicit self-harm content.
+- moderate: significant distress, helplessness, or being unable to cope, but NO self-harm content.
 - high: explicit hopelessness, not wanting to continue, or clear self-harm thoughts without a stated plan.
 - critical: explicit suicidal ideation, a stated plan, or an intention to harm themselves.
 
-Do not diagnose. Do not judge. Respond ONLY with JSON:
+Never diagnose. Never judge. When a message is short or ambiguous, choose the most likely intent rather than falling back to general — the assistant must be able to answer immediately.
+Respond ONLY with JSON:
 {"intent": "<general|career|academics|mental_health>", "riskLevel": "<low|moderate|high|critical>", "reason": "<one short sentence on the risk>"}`
 
   const data = await groqChat({
@@ -181,7 +184,13 @@ Do not diagnose. Do not judge. Respond ONLY with JSON:
     user: `Student message: ${text}`,
     json: true,
     temperature: 0,
-    maxTokens: 250,
+    // Reasoning tokens count against max_tokens on gpt-oss, so at the default
+    // medium effort a tight 250-token budget could be consumed entirely by
+    // thinking — leaving an empty or truncated JSON body, which silently
+    // degrades every message to the `general` intent. Think lightly, budget
+    // generously, and classify reliably.
+    reasoningEffort: 'low',
+    maxTokens: 700,
     model: modelConfig.groqFastModel,
     signal,
   })
@@ -238,7 +247,17 @@ async function generateReply(context, { onDelta, signal } = {}) {
     category, evidence, evidenceUsed, correction, userContext, userDataQ, voice,
   } = context
 
-  const system = `You are "VibeCheck", a warm, encouraging student support assistant at a college. Your job: be genuinely helpful across academics, career, and well-being, and to be responsible with mental-health topics.
+  const system = `You are "VibeCheck", a warm student support assistant built for college students. You sound like a smart, kind upper-year friend — Gen Z, casual, real — never like a corporate chatbot or a textbook. Your job: genuinely help across academics, career, and well-being, and be responsible with mental-health topics.
+
+PERSONA & TONE:
+- Talk like an actual person, not a brand. Contractions, short sentences, everyday words: "you're", "let's", "that's", "yeah".
+- Match the student's energy and mirror their words. If they're hyped, ride with it; if they're low, slow down and be gentle.
+- Light, natural student slang is welcome when it genuinely fits ("that's rough", "no stress", "let's break it down", "you've got this"). Use at most one touch per reply, never stack it, never mock, never try too hard — forced slang reads as cringe and breaks trust.
+- Sound like a peer who has been through it, not an authority. No lecturing, no "As an AI", no "Certainly!", no corporate filler.
+- Be specific and real. Vague hype ("just stay positive!") is worse than saying less.
+- mental_health: warmth first, always. Casual is NOT dismissive — never make light of self-harm, crisis, or serious distress, and drop the slang entirely when someone is struggling.
+- academics: explain like a smart friend in the same class. Plain words, a real-world analogy, then one clear step at a time.
+- general/career: chat naturally and leave them with one concrete, useful thing.
 
 DETECTED CONTEXT:
 - Intent: ${intent}
@@ -251,26 +270,31 @@ ${userContext ? `USER CONTEXT (real, current data from this student's account �
 
 ${voice ? `
 VOICE MODE — this reply is SPOKEN ALOUD, not read on screen. These rules override the paragraph and length rules above:
-- One to three short sentences. Hard limit: roughly 35 words total. Two sentences is usually right.
+- Two to four short sentences. Aim for roughly 40 to 60 words. Enough to actually help, never a monologue.
+- Keep the same warm, casual, peer-to-peer tone as above — but drop slang entirely if the topic is mental health or distress.
 - Write for the ear. NO markdown, NO lists, NO headings, NO bullet or numbered lists, NO URLs, NO emoji, NO parentheses, NO asterisks, NO em dashes.
 - Only the words you would actually say. No stage directions, no labels, no "Answer:", no formatting.
 - Contractions are preferred: "you're", "I'll", "that's". Spoken, not written.
 - Lead immediately with the answer or the emotional response. Never open with "Great question!" or a preamble.
 - Give ONE most important point. If more detail would help, offer it in a short closing line: "Want the quick version or the full walkthrough?"
-- End with a brief question only when it genuinely moves the conversation forward.
-- For academics: name the concept in one plain sentence and ask what clicked. Save the full walkthrough for when they ask.
-- For career: give one concrete next step, then ask which direction they want.
+- Only end with a question if you genuinely could not answer without more detail — otherwise finish on your answer, not on a question.
+- For academics: name the concept in one plain sentence, then add a short question only if it genuinely helps them go further.
+- For career: give one concrete next step; only ask a direction question if it helps, never instead of a next step.
 - For mental health: one warm validating sentence and one small, doable suggestion. Grounded in EVIDENCE when present.
 ` : ''}
 
 STAGE-SPECIFIC BEHAVIOUR:
 1. general — reply warmly and naturally. Short, conversational, no retrieval.
-2. academics — act as an adaptive tutor. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Give a plain definition, an intuitive analogy, then a clear walkthrough with a small concrete example; end with one short practice question when appropriate.
-3. career — give a structured, personalized path: acknowledge their goal, name relevant skills/topics, then a practical sequence (learn → practice → projects → apply); ask one focusing follow-up question.
+2. academics — act as an adaptive tutor. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Give a plain definition, an intuitive analogy, then a clear walkthrough with a small concrete example, and answer the actual question. A short practice question at the end is welcome but optional.
+3. career — give a structured, personalized path: acknowledge their goal, name relevant skills/topics, then a practical sequence (learn → practice → projects → apply). Always include the next concrete step; a focusing follow-up question is optional.
 4. mental_health (low/moderate risk) — validate their feelings without overreacting, stay calm and non-judgmental, and ground concrete suggestions in the retrieved knowledge below whenever it is available. Always answer the user's actual question — never reply with generic routing or "share more" prompts. Never diagnose, never claim to be a therapist, never invent medical facts, statistics, or sources.
 
 EVIDENCE (only when retrieved — may be empty):
-${evidenceUsed && evidence.length ? `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence)}` : 'No retrieved knowledge is available. Give gentle, general, safe guidance only. Where firm facts would normally come from sources (e.g. WHO self-help guidance, NHS Every Mind Matters, NIMH), name them as places to look rather than quoting specific claims.'}
+${evidenceUsed && evidence.length
+  ? `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence)}`
+  : intent === 'mental_health'
+    ? 'No retrieved knowledge is available. Give gentle, general, safe guidance only. Where firm facts would normally come from sources (e.g. WHO self-help guidance, NHS Every Mind Matters, NIMH), name them as places to look rather than quoting specific claims.'
+    : 'No reference material was retrieved. Answer from your own solid subject knowledge — be concrete and specific, with real examples, and never hedge just because no document was found.'}
 
 OUTPUT FORMAT:
 - Start immediately with your reply text. No preamble, no sign-off about what you are about to do.
@@ -283,6 +307,9 @@ FORMATTING RULES:
 - The first paragraph must directly address the student; never repeat yourself in the last paragraph.
 
 ALWAYS:
+- ANSWER IMMEDIATELY. Give a real, useful answer in this reply, every time. Never reply with only a request to "share more", "tell me more", or a promise to help later — that is a failure.
+- If the message is short or ambiguous, answer the most likely meaning right away; you may add ONE brief clarifying question at the end if it genuinely helps, but never instead of an answer.
+- Prefer answering over clarifying. Only ask a question when you truly cannot answer without one missing detail.
 - Be concise (match the length the message warrants).
 - Address the student's message directly and mirror their key phrases.
 - Do not fabricate sources, links, citations, or statistics.
@@ -299,7 +326,10 @@ ALWAYS:
     user: text,
     history,
     temperature: voice ? 0.7 : 0.6,
-    maxTokens: 900,
+    maxTokens: voice ? 900 : 1500,
+    // Reasoning runs before any visible text is streamed, so it directly delays
+    // the first spoken word. Voice turns think lightly and speak sooner.
+    reasoningEffort: voice ? 'low' : undefined,
     onDelta: emit,
     signal,
   })
@@ -316,6 +346,8 @@ Check that, taken together, ALL of these hold:
 4. Does NOT fabricate sources, links, statistics, or medical facts.
 5. Directly addresses what the student actually said (relevant).
 
+A warm, casual, peer-like tone is allowed and is NOT a failure. Only flag tone that is dismissive, joking about distress, alarmist, or cold.
+
 Respond ONLY with JSON: {"ok": true|false, "issue": "<short description if not ok, else empty string>"}`
 
   const data = await groqChat({
@@ -323,6 +355,7 @@ Respond ONLY with JSON: {"ok": true|false, "issue": "<short description if not o
     user: `Student message:\n${text}\n\nAssistant reply:\n${reply}`,
     json: true,
     temperature: 0,
+    reasoningEffort: 'low',
   })
   return { ok: data?.ok !== false, issue: typeof data?.issue === 'string' ? data.issue : '' }
 }
@@ -333,15 +366,15 @@ function fallbackReply(text) {
     return "I'm really glad you told me. You deserve support right now — if you're in immediate danger, reach your local emergency services now, and please keep someone you trust close. I'm here with you and can help you find a crisis line if you want."
   }
   if (/(stress|anxious|anxiety|sad|hopeless|overwhelm|alone|burnout|tired|cant sleep|can't sleep|afraid|worried)/.test(lower)) {
-    return "I'm here with you. What you're feeling is worth talking through — be gentle with yourself, take a small step like a short break or a slow breath, and reach out to someone you trust or your campus counselor when you can."
+    return "That sounds genuinely heavy, and it makes sense you feel this way. One thing that helps in the moment: pick the smallest next step — a glass of water, a few slow breaths, or a short walk — and then let one person you trust know how you're doing. You don't have to sort it all out at once, and reaching out to your campus counselor is a solid move when you're ready."
   }
-  if (/(exam|test|stud|assignment|subject|theorem|solve|learn)/.test(lower)) {
-    return 'Let me walk you through it step by step. What topic or concept is giving you trouble? Share a bit more detail and we will break it down together.'
+  if (/(exam|test|stud|assignment|subject|theorem|solve|learn|explain|concept|homework|revis)/.test(lower)) {
+    return "Here's the fastest way through it: start from the core idea, break it into one small piece at a time, and check yourself with a quick example as you go. Tell me the exact topic or question and I'll walk you through it step by step."
   }
-  if (/(placement|job|career|resume|skills|internship)/.test(lower)) {
-    return 'Let me build you a practical roadmap. Which role or industry are you aiming for? Then we can list the skills, practice, and projects to get there.'
+  if (/(placement|job|career|resume|skills|internship|interview)/.test(lower)) {
+    return "A practical path: pick one target role, list the few skills it really needs, then build one small project or practice task that proves each skill. Add it to your resume and apply while you keep improving. Tell me the role you're aiming for and I'll tailor the steps."
   }
-  return 'Got it — share a little more and I will route it properly (academics, career, or well-being) and give you a proper answer.'
+  return "Happy to help with whatever's on your mind — academics, career, or how you're feeling. Give me the specifics of what you're working through and I'll take it from there."
 }
 
 function looksLikeUserDataQuestion(text) {
@@ -351,10 +384,46 @@ function looksLikeUserDataQuestion(text) {
   return topic && asks
 }
 
+/**
+ * Emotion + knowledge retrieval for a well-being message. These are the slow,
+ * network-bound steps and they do NOT depend on the LLM classifier, so when the
+ * message already reads as emotional we start them alongside the analysis call
+ * rather than waiting for it.
+ */
+function enrichMentalHealth(text) {
+  const category = detectSupportCategory(text)
+  return Promise.allSettled([
+    analyzeEmotion(text),
+    resolveEvidence({ intent: 'mental_health', message: text, category }),
+  ]).then(([emotionResult, retrievalResult]) => ({ category, emotionResult, retrievalResult }))
+}
+
+/** Cheap pre-check so we only speculate enrichment on likely well-being turns. */
+const EMOTION_HINTS = /(stress|anxious|anxiety|panic|sad|depress|hopeless|overwhelm|burn(?:t|ed)? ?out|exhaust|lonely|alone|sleep|insomnia|tired|mood|feel|feeling|emotion|motivat|cry|worried|worry|nervous|afraid|scared|cannot cope|can't cope|cant cope|give up|no reason|hate myself|worthless|failure|self.?harm|suicid|want to die|kill myself)/i
+
+const ENRICHMENT_TIMEOUT = Symbol('enrichment-timed-out')
+
+function waitFor(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(ENRICHMENT_TIMEOUT), ms)
+    // Fire-and-forget: if enrichment wins we simply never read this value.
+    if (typeof timer.unref === 'function') timer.unref()
+  })
+}
+
 /* ─────────────────────── main pipeline ─────────────────────── */
 
 async function runPipeline(text, history = [], userContext = null, { onDelta, onMeta, onRevision, signal, analysis, voice } = {}) {
   const hardRisk = hardRiskCheck(text)
+
+  // Well-being enrichment is network-bound and independent of the classifier,
+  // so kick it off now on likely emotional messages and overlap it with the
+  // analysis call instead of stacking the two latencies. Crisis messages are
+  // included too: their reply is canned, but their score still feeds the risk
+  // model.
+  const speculativeEnrichment = EMOTION_HINTS.test(text) || hardRisk
+    ? enrichMentalHealth(text)
+    : null
 
   let intent = 'general'
   let riskLevel = hardRisk || 'low'
@@ -384,27 +453,81 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
 
   let sentiment = null
   let emotion = null
+  let sentimentSource = null
+  let sentimentConfidence = null
+  let sentimentDetail = null
   let category = null
   let evidence = []
   let evidenceUsed = false
 
-  // Enrichment is only consumed by the generated reply — the canned safety
-  // response ignores it, so skip the work entirely on the crisis path.
-  if (intent === 'mental_health' && riskLevel !== 'high' && riskLevel !== 'critical') {
-    category = detectSupportCategory(text)
-    const [emotionResult, retrievalResult] = await Promise.allSettled([
-      hfEmotionAnalysis(text),
-      resolveEvidence({ intent, message: text, category }),
-    ])
+  const safetyPath = riskLevel === 'high' || riskLevel === 'critical'
 
-    if (emotionResult.status === 'fulfilled') {
-      sentiment = emotionResult.value.sentiment
-      emotion = emotionResult.value.emotion
+  const takeEmotion = (enriched) => {
+    if (enriched !== ENRICHMENT_TIMEOUT && enriched.emotionResult?.status === 'fulfilled') {
+      const value = enriched.emotionResult.value
+      sentiment = value.sentiment
+      emotion = value.emotion
+      sentimentSource = value.detail?.version ?? 'goemotions-nrcvad-v1'
+      sentimentConfidence = value.confidence ?? null
+      sentimentDetail = value.detail ?? null
+      return
     }
-    if (retrievalResult.status === 'fulfilled') {
-      evidence = retrievalResult.value.results
-      evidenceUsed = retrievalResult.value.used
+    // The hosted emotion model is unavailable (no key, cold start, rate limit)
+    // — fall back to the local lexicon so a well-being turn still carries a
+    // score. A null here would be imputed as the training mean by the risk
+    // model, i.e. a distressed student scored as average.
+    const local = analyzeSentiment(text)
+    sentiment = Math.round(((local.score + 1) / 2) * 100) / 100
+    emotion = local.label.toLowerCase()
+    sentimentSource = local.source
+    sentimentConfidence = local.confidence
+    sentimentDetail = local.detail
+  }
+
+  // Deferred score: the reply must not wait for emotion analysis, but the
+  // score must still exist. Previously a null sentiment made the predictor
+  // impute the training mean — i.e. score the most distressed students as
+  // average, the exact inverse of the intended signal.
+  let pendingScore = null
+
+  if (intent === 'mental_health' && !safetyPath) {
+    category = detectSupportCategory(text)
+    const pending = speculativeEnrichment ?? enrichMentalHealth(text)
+    // A cold embedding or emotion model can block for seconds, and voice turns
+    // must feel like a live call. If enrichment doesn't come back in time we
+    // reply without it — the prompt already covers the no-evidence case. Text
+    // turns can afford to wait and stay fully grounded.
+    const enriched = voice
+      ? await Promise.race([pending, waitFor(1500)])
+      : await pending
+
+    takeEmotion(enriched)
+    if (enriched !== ENRICHMENT_TIMEOUT && enriched.retrievalResult.status === 'fulfilled') {
+      evidence = enriched.retrievalResult.value.results
+      evidenceUsed = enriched.retrievalResult.value.used
     }
+  } else if (intent === 'academics' || intent === 'career') {
+    // Academic and career answers are grounded in the ingested textbooks/guides.
+    // No emotion scoring here — these turns carry no well-being signal, and the
+    // session average is intentionally scoped to mental-health turns.
+    try {
+      const retrieval = await resolveEvidence({ intent, message: text })
+      evidence = retrieval.results
+      evidenceUsed = retrieval.used
+    } catch {
+      evidence = []
+      evidenceUsed = false
+    }
+  } else if (safetyPath) {
+    // Crisis and high-risk turns are well-being signal whatever intent the
+    // classifier picked — a null here is imputed as the training mean by the
+    // risk model, scoring the most distressed students as average. The reply is
+    // canned, so the score runs alongside it and is collected before returning.
+    //
+    // Anything else that is not mental_health is deliberately left unscored:
+    // the session average and the analytics well-being % cover mental-health
+    // conversations, not academic or general chit-chat.
+    pendingScore = (speculativeEnrichment ?? enrichMentalHealth(text)).then(takeEmotion)
   }
 
   let reply
@@ -423,12 +546,29 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
       category, evidence, evidenceUsed, userContext, userDataQ, voice,
     }
     const fallback = fallbackReply(text)
+    // Track whether the client has already seen partial text, so a retry can be
+    // delivered as a full replacement (revision) instead of a slice that would
+    // garble what is already on screen or being spoken.
+    let streamedAnything = false
+    const trackedDelta = onDelta
+      ? (value) => {
+          streamedAnything = true
+          onDelta(value)
+        }
+      : undefined
 
     try {
-      const streamed = await generateReply(baseContext, { onDelta, signal })
+      const streamed = await generateReply(baseContext, { onDelta: trackedDelta, signal })
       reply = streamed || fallback
+      // The model can finish with no usable content (an empty stream, or a
+      // reasoning-only response). In that case nothing was streamed, so push
+      // the fallback to the client instead of leaving the turn silent.
+      if (!streamed) trackedDelta?.(fallback)
 
-      if (intent === 'mental_health') {
+      // Voice turns skip the post-hoc reviewer: the reply is already being
+      // spoken, and a revision would cut it off and restart mid-sentence. The
+      // in-prompt safety rules still apply.
+      if (intent === 'mental_health' && !voice) {
         const maxAttempts = 2
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           if (signal?.aborted) break
@@ -461,11 +601,23 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
     } catch (err) {
       if (err?.name === 'AbortError' || signal?.aborted) throw err
       try {
-        reply = (await generateReply(baseContext, { signal })) || fallback
+        const retried = (await generateReply(baseContext, { signal })) || fallback
+        reply = retried
+        // Replace whatever partial text already reached the client so the whole
+        // reply (not a truncated prefix) is what they end up with.
+        if (streamedAnything) onRevision?.(retried)
+        else onDelta?.(retried)
       } catch {
         reply = fallback
+        if (!streamedAnything) onDelta?.(fallback)
       }
     }
+  }
+
+  // The deferred score has overlapped the whole reply generation, so this
+  // rarely waits; the cap keeps persistence from stalling on a cold model.
+  if (pendingScore) {
+    await Promise.race([pendingScore, waitFor(2000)])
   }
 
   return {
@@ -474,6 +626,9 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
     riskReason,
     sentiment,
     emotion,
+    sentimentSource,
+    sentimentConfidence,
+    sentimentDetail,
     category,
     evidence,
     evidenceUsed,
@@ -506,7 +661,15 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     userId ? buildUserContext(userId) : Promise.resolve(null),
   ])
 
-  const history = historyRows.slice(-16).map((m) => ({ role: m.role, content: m.content }))
+  // `historyRows` comes back newest-first (orderBy desc). Keep the newest 16 and
+  // flip to chronological order before sending: passing it reversed left the
+  // session's first question immediately before the current one, so the model
+  // treated the previous question as part of the new message and answered both
+  // (seen in academics, general, and mental-health chats alike).
+  const history = historyRows
+    .slice(0, 16)
+    .reverse()
+    .map((m) => ({ role: m.role, content: m.content }))
 
   const result = await runPipeline(text, history, userContext, { onDelta, onMeta, onRevision, signal, analysis, voice })
 
@@ -520,6 +683,12 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
       riskLevel: result.riskLevel,
       label: result.emotion,
       score: result.sentiment,
+      // The evidence behind the score: which scorer produced it, how certain it
+      // was, and the emotion distribution / matched terms it came from. Stored
+      // so any value shown to a student or judge can be explained after the fact.
+      sentimentSource: result.sentimentSource,
+      sentimentConfidence: result.sentimentConfidence,
+      sentimentDetail: result.sentimentDetail ? JSON.stringify(result.sentimentDetail) : null,
     },
   })
 
@@ -549,6 +718,8 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
       riskLevel: result.riskLevel,
       sentimentScore: result.sentiment,
       emotion: result.emotion,
+      sentimentSource: result.sentimentSource,
+      sentimentConfidence: result.sentimentConfidence,
       category: result.category,
       evidenceUsed: result.evidenceUsed,
       evidenceCount: result.evidence.length,

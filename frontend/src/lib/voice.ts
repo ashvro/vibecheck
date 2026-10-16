@@ -1,5 +1,5 @@
 import * as vad from '@ricky0123/vad-web'
-import { SpeechStream } from './tts'
+import { SpeechStream, getTtsProvider } from './tts'
 import { streamVoice } from './stream'
 
 export type VoicePhase =
@@ -24,6 +24,8 @@ export type VoiceHandlers = {
   onDelta: (text: string) => void
   onRevision: (text: string) => void
   onTurnEnd: (info: { reply: string; meta?: VoiceReplyMeta; sessionId: number | null }) => void
+  /** The turn was cut short (barge-in or mic stopped) — finalize it as-is. */
+  onAborted?: () => void
   onError: (message: string) => void
 }
 
@@ -66,9 +68,44 @@ function reportLevel(level: number) {
   handlers?.onLevel?.(level)
 }
 
+/**
+ * Silero VAD tuning. The library defaults (positive threshold 0.3, min speech
+ * 400ms, 1.4s hangover) are permissive enough that background noise — fans,
+ * music, other people talking — registers as speech and keeps a turn open.
+ * These values demand a clearer, longer utterance before we call it speech,
+ * and end the segment sooner once you actually stop talking.
+ */
+const VAD_TUNING = {
+  /** Probability above which a frame counts as speech (default 0.3). */
+  positiveSpeechThreshold: 0.5,
+  /** Probability below which a frame counts as silence (default 0.25). */
+  negativeSpeechThreshold: 0.35,
+  /** Silence held before the turn is closed (default 1400ms). */
+  redemptionMs: 650,
+  /** Audio kept before speech is detected, so the first word isn't clipped. */
+  preSpeechPadMs: 400,
+  /** Minimum speech length for a valid utterance; shorter is a misfire. */
+  minSpeechMs: 500,
+} as const
+
+/**
+ * While the assistant is talking we ask for a longer, more deliberate
+ * utterance before treating it as an interruption. This stops the model's own
+ * voice leaking through the speakers (imperfect echo cancellation) from
+ * cutting its reply off after the first sentence.
+ */
+const BARGE_IN_MIN_SPEECH_MS = 900
+
 function wavBlob(samples: Float32Array): Blob {
   const buffer = vad.utils.encodeWAV(samples, 1, 16000, 1, 16)
   return new Blob([buffer], { type: 'audio/wav' })
+}
+
+/** Raise the barge-in bar while speaking, drop it back for normal listening. */
+function setBargeInGuard(active: boolean) {
+  micVAD?.setOptions({
+    minSpeechMs: active ? BARGE_IN_MIN_SPEECH_MS : VAD_TUNING.minSpeechMs,
+  })
 }
 
 function abortTurn() {
@@ -93,15 +130,23 @@ async function runTurn(audio: Blob) {
   if (!handlers || processing) return
   processing = true
   setPhase('processing')
+  // A turn is in flight (thinking or speaking) — require a deliberate
+  // utterance to interrupt it, so background noise can't abort the reply.
+  setBargeInGuard(true)
 
   const current = handlers
-  const stream = new SpeechStream((level) => reportLevel(level))
+  const stream = new SpeechStream(
+    (level) => reportLevel(level),
+    // Playback can start slightly after the delta that queued it (the audio is
+    // synthesised ahead of time), so transition to "speaking" on the real cue.
+    () => setPhase('speaking'),
+  )
   speech = stream
   const controller = new AbortController()
   turnAbort = controller
 
   let lastText = ''
-  let received = false
+  let finalReply = ''
   let meta: VoiceReplyMeta | undefined
 
   const markSpeaking = () => {
@@ -114,7 +159,6 @@ async function runTurn(audio: Blob) {
       sessionId: current.getSessionId(),
       signal: controller.signal,
       onTranscript: (text) => {
-        received = true
         current.onTurnStart({ transcript: text, meta })
       },
       onMeta: (m) => {
@@ -123,7 +167,6 @@ async function runTurn(audio: Blob) {
       },
       onDelta: (text) => {
         lastText = text
-        received = true
         current.onDelta(text)
         stream.push(text)
         markSpeaking()
@@ -137,29 +180,44 @@ async function runTurn(audio: Blob) {
       },
       onDone: ({ reply, meta: finalMeta, session }) => {
         if (finalMeta) meta = finalMeta
+        if (reply) finalReply = reply
         current.onTurnEnd({ reply, meta, sessionId: session?.id ?? null })
       },
     })
 
     if (controller.signal.aborted || !current) return
-    if (!received || !lastText) {
+    // Prefer the streamed text, but fall back to the final reply: some turns
+    // finish with no deltas (for example the server substituted a fallback
+    // reply), and that must still be spoken instead of reported as a failure.
+    const spoken = lastText || finalReply
+    if (!spoken) {
       current.onError('The assistant could not generate a reply.')
       stream.cancel()
       await resumeListening()
       return
     }
 
-    stream.flush(lastText)
+    stream.flush(spoken)
     markSpeaking()
     await stream.onIdle()
     await resumeListening()
   } catch (err) {
     stream.cancel()
-    if (err instanceof DOMException && err.name === 'AbortError') return
-    if (controller.signal.aborted) return
+    // A barge-in (or the user stopping voice) aborts the turn. Tell the UI so it
+    // can finalize this turn — otherwise the next utterance reuses the stale
+    // turn ids and its transcript is silently dropped.
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      current.onAborted?.()
+      return
+    }
+    if (controller.signal.aborted) {
+      current.onAborted?.()
+      return
+    }
     current.onError(err instanceof Error ? err.message : 'Voice request failed.')
     await resumeListening()
   } finally {
+    setBargeInGuard(false)
     if (turnAbort === controller) turnAbort = null
     processing = false
     if (speech === stream) speech = null
@@ -184,15 +242,18 @@ async function ensureVad(): Promise<vad.MicVAD> {
     baseAssetPath: '/vad/',
     onnxWASMBasePath: '/ort/',
     startOnLoad: false,
+    ...VAD_TUNING,
     onFrameProcessed: (_probabilities, frame) => {
       // 32ms frames - drives the orb's live listening ring. Only while the VAD
       // is running AND we are actually in the listening phase, so the orb does
       // not show mic motion while it is thinking or speaking.
       if (micVAD?.listening && phase === 'listening') reportLevel(frameLevel(frame))
     },
-    onSpeechStart() {
+    onSpeechRealStart() {
       if (!handlers) return
-      // Barge-in: stop speaking and stop generating so the new turn wins.
+      // Barge-in. `onSpeechRealStart` only fires after a sustained, deliberate
+      // utterance (unlike `onSpeechStart`, which fires on the first loud frame),
+      // so a background noise blip no longer cancels the reply mid-sentence.
       if (speech) {
         speech.cancel()
         setPhase('listening')
@@ -224,6 +285,9 @@ export function prewarmVoice(): void {
   if (prewarmStarted) return
   if (typeof window === 'undefined') return
   prewarmStarted = true
+  // Warm the TTS provider lookup too — otherwise the very first spoken chunk
+  // waits on this request before it can start synthesising.
+  void getTtsProvider().catch(() => undefined)
   void ensureVad().catch((err) => {
     prewarmStarted = false
     console.warn('[voice] prewarm failed', err)
@@ -256,6 +320,7 @@ async function stopVoiceInternal(): Promise<void> {
   speech?.cancel()
   speech = null
   abortTurn()
+  setBargeInGuard(false)
   // Notify before dropping handlers, otherwise the UI never learns we went idle.
   setPhase('idle')
   reportLevel(0)

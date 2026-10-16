@@ -46,8 +46,15 @@ function softmax(z) {
 /**
  * Normalise a number, falling back to the training mean (a statistically
  * neutral imputation) when a live record has no value for that feature.
+ *
+ * `null`/`undefined`/`''` must be treated as missing: `Number(null)` is 0,
+ * so a plain `Number.isFinite` check would silently score a brand-new student
+ * as if they had 0% attendance, 0 CGPA and the worst possible sentiment.
  */
 function coerce(value, fallback, { min, max }) {
+  if (value === null || value === undefined || value === '') {
+    return { value: fallback, imputed: true }
+  }
   const n = Number(value)
   if (!Number.isFinite(n)) return { value: fallback, imputed: true }
   return { value: Math.min(max, Math.max(min, n)), imputed: false }

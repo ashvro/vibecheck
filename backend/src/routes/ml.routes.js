@@ -1,79 +1,37 @@
 /**
- * ML dropout-risk endpoints.
+ * ML endpoints: the model itself, the viewer's own prediction, and ad-hoc
+ * scoring. There is no roster here any more - /api/analytics/insights is the
+ * single role-scoped table, so the two can never disagree.
  *
- * Mounted at /api/analytics/ml, entirely separate from the existing
- * rule-based endpoints. Nothing here alters the existing risk criteria:
- * /risk-students, /risk-trend, /chat-sentiment and /factor-weights all keep
- * their current thresholds, labels and weights.
+ * Individual student records are never served from this router; wellbeing
+ * scoping in particular lives in src/analytics/scope.js.
  */
 
 import { Router } from 'express'
 import { getModelInfo, predictRisk } from '../ml/predictor.js'
 import { buildFeatureRows } from '../ml/liveData.js'
+import { requireAuth } from '../middleware/auth.js'
 
 export const mlRoutes = Router()
 
-const isStaff = (req) => ['teacher', 'admin'].includes(req.user?.role)
-
-/** Model card: weights, accuracy, class balance, the original 8-model study. */
-mlRoutes.get('/model-info', (_req, res, next) => {
-  try {
-    res.json(getModelInfo())
-  } catch (err) {
-    next(err)
-  }
-})
+// Mounted under the app-wide optionalAuth, so lock this router down explicitly:
+// every response here is derived from the viewer's own records.
+mlRoutes.use(requireAuth)
 
 /**
- * ML risk for every student, scored at student level.
- * Students see only themselves; staff see everyone.
+ * The viewer's own risk prediction, powering the dashboard card. Staff get
+ * their institution's distribution instead, and no `latest` of their own -
+ * risk is a per-student metric and staff are not scored as students.
  */
-mlRoutes.get('/risk-students', async (req, res, next) => {
-  try {
-    if (!req.user) return res.json([])
-
-    const allUsers = isStaff(req)
-    const rows = await buildFeatureRows({ allUsers, userId: allUsers ? null : req.user.id })
-
-    let students = rows.map((row) => {
-      const p = predictRisk(row)
-      return {
-        id: row.userId,
-        name: allUsers ? row.name : null,
-        risk: p.risk,
-        score: p.score,
-        confidence: p.confidence,
-        probabilities: p.probabilities,
-        contributions: p.contributions,
-        imputed: p.imputed,
-        sentiment: row.sentiment != null ? Math.round(row.sentiment * 100) : null,
-        attendance: row.attendance != null ? Math.round(row.attendance) : null,
-        cgpa: row.cgpa != null ? Math.round(row.cgpa * 100) / 100 : null,
-        subjectCount: row.subjectCount,
-        subjects: row.subjects,
-      }
-    })
-
-    const risk = req.query.risk ? String(req.query.risk) : null
-    if (risk && risk !== 'All') students = students.filter((s) => s.risk === risk)
-    if (req.query.missing === 'true') students = students.filter((s) => s.imputed.length > 0)
-
-    students.sort((a, b) => b.score - a.score)
-    res.json(students)
-  } catch (err) {
-    next(err)
-  }
-})
-
-/** Aggregate ML distribution — powers the dashboard card and the analytics header. */
 mlRoutes.get('/summary', async (req, res, next) => {
   try {
     if (!req.user) {
-      return res.json({ model: null, students: 0, distribution: {}, averageScore: null, highRisk: 0 })
+      return res.json({ model: null, students: 0, distribution: {}, averageScore: null, highRisk: 0, latest: null })
     }
 
-    const allUsers = isStaff(req)
-    const rows = await buildFeatureRows({ allUsers, userId: allUsers ? null : req.user.id })
+    const isAdmin = req.user.role === 'admin'
+    const isStaff = req.user.role === 'teacher' || isAdmin
+    const rows = await buildFeatureRows({ allUsers: isStaff, userId: isStaff ? null : req.user.id })
     const scored = rows.map((row) => ({ row, p: predictRisk(row) }))
 
     const distribution = { Low: 0, Medium: 0, High: 0 }
@@ -101,7 +59,23 @@ mlRoutes.get('/summary', async (req, res, next) => {
   }
 })
 
-/** Ad-hoc prediction from raw features — used by the "test the model" form. */
+/**
+ * Model card: weights, accuracy, class balance, the original 8-model study.
+ * Describes the model, not any person, so it is open to any signed-in user;
+ * per-student coverage and governance live behind /api/analytics/model.
+ */
+mlRoutes.get('/model-info', (_req, res, next) => {
+  try {
+    res.json(getModelInfo())
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * Ad-hoc prediction from raw features - the "test the model" form. Scores only
+ * the numbers typed in, so it touches no student record.
+ */
 mlRoutes.post('/predict', (req, res, next) => {
   try {
     const { sentiment, attendance, cgpa } = req.body ?? {}

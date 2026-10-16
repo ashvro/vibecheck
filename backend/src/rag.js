@@ -1,5 +1,5 @@
 import { prisma } from './prisma.js'
-import { hfEmbed, hasHf } from './utils/llm.js'
+import { embed } from './utils/llm.js'
 
 export const KNOWLEDGE_COLLECTIONS = ['mental_health', 'career', 'academics']
 
@@ -50,6 +50,26 @@ export function detectSupportCategory(text = '') {
   return null
 }
 
+/**
+ * Academic subject hints for the four textbooks ingested under `academics/`.
+ * Used to boost chunks from the likely subject, so a "deadlock" question leans
+ * on the OS textbook rather than whichever book happens to share a word.
+ */
+const SUBJECT_RULES = [
+  ['dsa', ['data structure', 'algorithm', 'algorithms', 'dsa', 'linked list', 'binary tree', 'binary search tree', 'graph', 'sorting', 'quicksort', 'mergesort', 'stack', 'queue', 'heap', 'hash', 'recursion', 'dynamic programming', 'big o', 'time complexity', 'space complexity', 'traversal']],
+  ['dbms', ['dbms', 'database', 'databases', 'sql', 'normalization', 'normal form', 'transaction', 'acid', 'relational', 'er diagram', 'entity relationship', 'indexing', 'primary key', 'foreign key', 'sql query', 'relational algebra', 'concurrency control']],
+  ['os', ['operating system', 'operating systems', 'process scheduling', 'scheduling', 'deadlock', 'paging', 'virtual memory', 'page replacement', 'thread', 'threads', 'semaphore', 'mutex', 'cpu scheduling', 'context switch', 'file system', 'memory management', 'round robin', 'thrashing']],
+  ['cns', ['computer network', 'computer networks', 'networking', 'cns', 'tcp', 'udp', 'ip address', 'osi', 'routing', 'subnet', 'ethernet', 'dns', 'http', 'socket', 'packet', 'router', 'network layer', 'transport layer', 'application layer', 'data link', 'congestion control', 'sliding window']],
+]
+
+export function detectSubject(text = '') {
+  const lower = text.toLowerCase()
+  for (const [subject, patterns] of SUBJECT_RULES) {
+    if (patterns.some((p) => lower.includes(p))) return subject
+  }
+  return null
+}
+
 export function cosine(a, b) {
   const len = Math.min(a.length, b.length)
   let dot = 0
@@ -93,13 +113,14 @@ export function loadChunks({ collections, categories } = {}) {
 
 export async function retrieve(query, { collections, boosts = null, topK = 4 } = {}) {
   const chunks = await loadChunks({ collections })
-  if (!chunks.length || !hasHf()) {
+  if (!chunks.length) {
     return { results: [], bestScore: 0, total: chunks.length }
   }
 
   let queryVec
   try {
-    queryVec = await hfEmbed(query)
+    const [vec] = await embed(query)
+    queryVec = vec
   } catch {
     return { results: [], bestScore: 0, total: chunks.length }
   }
@@ -147,6 +168,7 @@ export async function resolveEvidence({ intent, message, category }) {
 
   let collections
   let boosts = null
+  let subject = null
 
   if (intent === 'mental_health') {
     collections = ['mental_health']
@@ -158,6 +180,10 @@ export async function resolveEvidence({ intent, message, category }) {
     boosts = related
   } else {
     collections = [intent]
+    if (intent === 'academics') {
+      subject = detectSubject(message)
+      if (subject) boosts = [subject]
+    }
   }
 
   let attempt = await retrieve(message, { collections, boosts })
@@ -167,7 +193,7 @@ export async function resolveEvidence({ intent, message, category }) {
     const reformulated =
       intent === 'mental_health'
         ? `${message} support coping strategies self care wellbeing`
-        : `${message} ${intent} study guidance key concepts`
+        : `${message}${subject ? ` ${subject}` : ''} ${intent} textbook explanation key concepts definition`
     attempt = await retrieve(reformulated, { collections, boosts })
   }
 

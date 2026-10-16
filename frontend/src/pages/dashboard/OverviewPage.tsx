@@ -9,8 +9,8 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { CrystalMark } from '../../components/CrystalMark'
-import { MlRiskCard } from '../../components/ml/MlRiskCard'
 import { api, getUser } from '../../lib/api'
+import { mlApi, type MlRisk, type MlSummary } from '../../lib/ml'
 
 type StatCard = {
   label: string
@@ -53,11 +53,22 @@ const kindColors: Record<string, string> = {
   exam: 'bg-rose-400/15 text-rose-400 border-rose-400/30',
 }
 
-function riskKind(attendance: number | null): { label: string; position: number } {
-  if (attendance === null) return { label: 'Low', position: 0 }
-  if (attendance < 60) return { label: 'High', position: 2 }
-  if (attendance < 80) return { label: 'Mid', position: 1 }
-  return { label: 'Low', position: 0 }
+/** The model emits Low | Medium | High; the card keeps its original "Mid" label. */
+function mlPosition(risk: MlRisk): number {
+  return risk === 'High' ? 2 : risk === 'Medium' ? 1 : 0
+}
+
+/**
+ * Risk is now driven by the ML model rather than attendance alone, but the
+ * card stays empty until the model has all three real features — attendance,
+ * CGPA and well-being sentiment. A new user with no interaction has none of
+ * them, so the initial state is a plain "Low" with no score.
+ */
+function riskKind(ml: MlSummary | null): { label: string; position: number; score: number | null } {
+  const latest = ml?.latest ?? null
+  if (!latest || latest.imputed.length > 0) return { label: 'Low', position: 0, score: null }
+  const position = mlPosition(latest.risk)
+  return { label: riskLevels[position], position, score: latest.score }
 }
 
 function academicKind(cgpa: number | null): { label: string; index: number } {
@@ -68,13 +79,15 @@ function academicKind(cgpa: number | null): { label: string; index: number } {
   return { label: 'Outstanding', index: 4 }
 }
 
-function RiskContent({ pct }: { pct: number | null }) {
-  const risk = riskKind(pct)
+function RiskContent({ ml }: { ml: MlSummary | null }) {
+  const risk = riskKind(ml)
   return (
     <>
       <p className="mt-3 flex items-baseline gap-1.5 text-xl font-semibold tracking-tight text-ink">
         <span className="font-display tabular-nums">{risk.label}</span>
-        {pct != null && <span className="text-xs font-normal text-muted">{pct}% attendance</span>}
+        {risk.score != null && (
+          <span className="text-xs font-normal text-muted">{risk.score} / 100 risk</span>
+        )}
       </p>
       <div className="mt-2.5">
         <div className="relative h-1.5 rounded-full bg-gradient-to-r from-emerald-soft/40 via-amber-gentle/40 to-rose-400/40">
@@ -127,6 +140,7 @@ function AcademicsContent({ cgpa }: { cgpa: number | null }) {
 
 export function OverviewPage() {
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [ml, setMl] = useState<MlSummary | null>(null)
   const [todos, setTodos] = useState<Todo[]>([])
   const user = getUser()
 
@@ -135,6 +149,10 @@ export function OverviewPage() {
       .get<Summary>('/api/analytics/summary')
       .then(setSummary)
       .catch(() => setSummary(null))
+    mlApi
+      .summary()
+      .then(setMl)
+      .catch(() => setMl(null))
     api
       .get<Todo[]>('/api/lms/todos')
       .then(setTodos)
@@ -165,7 +183,7 @@ export function OverviewPage() {
       icon: CalendarDays,
       bar: summary?.avgAttendance ?? undefined,
     },
-    { label: 'Risk', value: riskKind(summary?.avgAttendance ?? null).label, icon: ShieldCheck, kind: 'risk' },
+    { label: 'Risk', value: riskKind(ml).label, icon: ShieldCheck, kind: 'risk' },
     { label: 'Academics', value: academicKind(summary?.cgpa ?? null).label, icon: GraduationCap, kind: 'academics' },
   ]
 
@@ -205,7 +223,7 @@ export function OverviewPage() {
               </p>
             </div>
 
-            {kind === 'risk' && <RiskContent pct={summary?.avgAttendance ?? null} />}
+            {kind === 'risk' && <RiskContent ml={ml} />}
             {kind === 'academics' && <AcademicsContent cgpa={summary?.cgpa ?? null} />}
 
             {!kind && (
@@ -228,10 +246,6 @@ export function OverviewPage() {
         ))}
       </div>
 
-      {/* Additive: the ML model card sits outside the existing stat grid so
-          the 2x2 layout and every current card stay exactly as they were. */}
-      <MlRiskCard />
-
       <section className="glass-ice p-6">
         <div className="flex items-center gap-2.5">
           <CrystalMark size="sm" spinOnView />
@@ -247,9 +261,9 @@ export function OverviewPage() {
               No upcoming quizzes or assignments — enjoy the calm.
             </li>
           )}
-          {tdo.map(({ title, course, date, daysLeft, kind }) => (
+          {tdo.map(({ id, title, course, date, daysLeft, kind }) => (
             <li
-              key={title + course}
+              key={id}
               className="group flex items-center gap-3.5 rounded-xl border border-ice/10 bg-white/[0.03] px-3.5 py-3 transition hover:border-ice/25 hover:bg-white/[0.05]"
             >
               <span

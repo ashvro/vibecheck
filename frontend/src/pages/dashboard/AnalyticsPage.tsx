@@ -1,413 +1,797 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Radar,
-  RadarChart,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
+import { ChevronRight, ShieldCheck } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
 import { MlRiskPanel } from '../../components/ml/MlRiskPanel'
 import { PageHeader } from '../../components/PageHeader'
-import { api, getUser } from '../../lib/api'
+import {
+  analyticsApi,
+  nextStepFor,
+  riskBar,
+  riskTone,
+  type AuditEntry,
+  type CourseInsight,
+  type InsightRow,
+  type Insights,
+  type ModelGovernance,
+  type Referral,
+  type RiskLevel,
+  type WellbeingTrend,
+} from '../../lib/analytics'
+import { mlApi, mlRiskStyles, type MlSummary } from '../../lib/ml'
 
-type RiskStudent = {
-  id: number
-  name?: string | null
-  subject: string
-  risk: 'Low' | 'Moderate' | 'High'
-  score: number
-  attendance: number | null
-  ia1: number | null
-  ia2: number | null
-  sentiment?: number | null
-  recommendation: string
+/* ------------------------------------------------------------------ *
+ * Shared bits
+ * ------------------------------------------------------------------ */
+
+const CHART_TOOLTIP = {
+  background: '#0b1120',
+  border: '1px solid rgba(148,163,184,0.2)',
+  borderRadius: 8,
+  fontSize: 12,
+  color: '#e2e8f0',
 }
 
-type FactorWeight = { name: string; value: number }
+const AXIS_TICK = { fontSize: 10, fill: 'rgba(148,163,184,0.85)' }
 
-type ChatSentiment = {
-  average: number | null
-  averagePct: number | null
-  messages: number
-  sessions: number
-  weeks: { week: string; count: number; sentiment: number | null }[]
+/** Short course label for a crowded x-axis: "CS301 · Databases" -> "CS301". */
+function codeOf(subject: string) {
+  return subject.split('·')[0].trim()
 }
 
-const riskColors = {
-  Low: 'text-emerald-soft bg-emerald-soft/15',
-  Moderate: 'text-amber-gentle bg-amber-gentle/15',
-  High: 'text-rose-400 bg-rose-500/15',
+function avgOf(values: (number | null)[]) {
+  const nums = values.filter((v): v is number => v != null)
+  return nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null
 }
 
-export function AnalyticsPage() {
-  const [students, setStudents] = useState<RiskStudent[]>([])
-  const [weights, setWeights] = useState<FactorWeight[]>([])
-  const [sentiment, setSentiment] = useState<ChatSentiment>({
-    average: null,
-    averagePct: null,
-    messages: 0,
-    sessions: 0,
-    weeks: [],
-  })
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
+function SectionTitle({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2.5">
+      <CrystalMark size="sm" spinOnView />
+      <h2 className="text-sm font-semibold text-ink">{children}</h2>
+      {aside ? <span className="ml-auto">{aside}</span> : null}
+    </div>
+  )
+}
 
-  // Staff get the full ML roster; students only ever see their own row.
-  const isStaff = ['teacher', 'admin'].includes(String(getUser()?.role ?? ''))
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return <p className="py-6 text-center text-sm text-muted">{children}</p>
+}
 
-  useEffect(() => {
-    Promise.all([
-      api.get<RiskStudent[]>('/api/analytics/risk-students'),
-      api.get<FactorWeight[]>('/api/analytics/factor-weights'),
-      api.get<ChatSentiment>('/api/analytics/chat-sentiment'),
-    ])
-      .then(([s, w, cs]) => {
-        setStudents(s)
-        setWeights(w)
-        setSentiment(cs)
-        setSelectedId((prev) => (prev != null && s.some((x) => x.id === prev) ? prev : (s[0]?.id ?? null)))
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+function StatChip({
+  label,
+  value,
+  unit,
+  tone,
+}: {
+  label: string
+  value: string
+  unit?: string
+  tone?: string
+}) {
+  return (
+    <div className="glass-ice rounded-xl px-3.5 py-3">
+      <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">{label}</p>
+      <p className={clsx('mt-1 text-xl font-semibold tabular-nums tracking-tight', tone ?? 'text-ink')}>
+        {value}
+        {unit && <span className="ml-1 text-xs font-normal text-muted">{unit}</span>}
+      </p>
+    </div>
+  )
+}
 
-  const riskCounts = { Low: 0, Moderate: 0, High: 0 }
-  students.forEach((s) => riskCounts[s.risk]++)
-  const total = students.length || 1
+function ChartCard({
+  title,
+  caption,
+  aside,
+  children,
+}: {
+  title: string
+  caption?: string
+  aside?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="glass-ice rounded-xl p-4">
+      <div className="flex items-center gap-2">
+        <h3 className="text-xs font-semibold text-ink">{title}</h3>
+        {aside ? (
+          <span className="ml-auto font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+            {aside}
+          </span>
+        ) : null}
+      </div>
+      {caption ? <p className="mt-0.5 text-[11px] leading-relaxed text-muted">{caption}</p> : null}
+      <div className="mt-3">{children}</div>
+    </section>
+  )
+}
 
-  const selected = students.find((s) => s.id === selectedId) ?? students[0]
-  const selectedMarks =
-    selected && selected.ia1 != null && selected.ia2 != null ? Math.round((selected.ia1 + selected.ia2) / 2) : null
-  const radarData = selected
-    ? [
-        { metric: 'Marks', value: selectedMarks ?? 0 },
-        { metric: 'Attendance', value: selected.attendance ?? 0 },
-        { metric: 'Sentiment', value: selected.sentiment ?? 0 },
-      ]
-    : []
-  const missingMetrics = selected
-    ? [
-        selectedMarks == null && 'marks',
-        selected.attendance == null && 'attendance',
-        selected.sentiment == null && 'sentiment',
-      ].filter(Boolean)
-    : []
+function ChartEmpty({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex h-[200px] items-center justify-center px-6 text-center text-xs leading-relaxed text-muted">
+      {children}
+    </p>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Charts
+ * ------------------------------------------------------------------ */
+
+function SentimentChart({ points }: { points: { label: string; value: number | null }[] }) {
+  const data = points.filter((p) => p.value != null)
+  if (!data.length) {
+    return <ChartEmpty>A well-being chat with the assistant builds this graph.</ChartEmpty>
+  }
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+        <defs>
+          <linearGradient id="wellbeingFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4ade80" stopOpacity={0.35} />
+            <stop offset="100%" stopColor="#4ade80" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
+        <XAxis dataKey="label" tick={AXIS_TICK} interval="preserveStartEnd" />
+        <YAxis domain={[0, 100]} tick={AXIS_TICK} />
+        <Tooltip contentStyle={CHART_TOOLTIP} formatter={(v) => [`${v}%`, 'Well-being']} />
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke="#4ade80"
+          strokeWidth={2}
+          fill="url(#wellbeingFill)"
+          connectNulls
+          dot={data.length <= 8 ? { r: 2.5, fill: '#4ade80', strokeWidth: 0 } : false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+type BarPoint = { label: string; primary: number | null; secondary?: number | null }
+
+/** Marks per course. Students compare IA1 vs IA2; staff see the course average. */
+function MarksChart({ points, compare }: { points: BarPoint[]; compare: boolean }) {
+  const data = points.filter((p) => p.primary != null || p.secondary != null)
+  if (!data.length) return <ChartEmpty>No marks recorded yet.</ChartEmpty>
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+        <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
+        <XAxis dataKey="label" tick={AXIS_TICK} interval={0} />
+        <YAxis domain={[0, 100]} tick={AXIS_TICK} />
+        <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: 'rgba(148,163,184,0.06)' }} />
+        {compare ? (
+          <>
+            <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.9)' }} />
+            <Bar dataKey="primary" name="IA1" fill="#7c5cfa" radius={[3, 3, 0, 0]} maxBarSize={20} />
+            <Bar dataKey="secondary" name="IA2" fill="#4ade80" radius={[3, 3, 0, 0]} maxBarSize={20} />
+          </>
+        ) : (
+          <Bar dataKey="primary" name="Marks" fill="#7c5cfa" radius={[3, 3, 0, 0]} maxBarSize={32} />
+        )}
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+function AttendanceChart({ points }: { points: { label: string; value: number | null }[] }) {
+  const data = points.filter((p) => p.value != null)
+  if (!data.length) return <ChartEmpty>No attendance recorded yet.</ChartEmpty>
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+        <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
+        <XAxis dataKey="label" tick={AXIS_TICK} interval={0} />
+        <YAxis domain={[0, 100]} tick={AXIS_TICK} />
+        <Tooltip
+          contentStyle={CHART_TOOLTIP}
+          cursor={{ fill: 'rgba(148,163,184,0.06)' }}
+          formatter={(v) => [`${v}%`, 'Attendance']}
+        />
+        <Bar dataKey="value" name="Attendance" fill="#7dd3fc" radius={[3, 3, 0, 0]} maxBarSize={32} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Student: the compact prediction card
+ * ------------------------------------------------------------------ */
+
+function StudentRiskCard({ ml, focusRow }: { ml: MlSummary | null; focusRow: InsightRow | null }) {
+  const latest = ml?.latest ?? null
+  // A score built partly on imputed features is not a real prediction — say so
+  // instead of showing a confident-looking number.
+  const ready = latest != null && latest.imputed.length === 0
 
   return (
-    <div className="mx-auto max-w-5xl space-y-10">
-      <PageHeader
-        eyebrow="Insights"
-        title="Risk analytics"
-        description="Grades, attendance, and mental-wellbeing sentiment — per-course risk breakdown"
-      />
+    <section className="glass-ice rounded-xl p-4">
+      <SectionTitle
+        aside={
+          <span className="font-mono text-[10px] tracking-[0.12em] text-muted uppercase">
+            {ml?.model ?? 'dropout-risk model'}
+          </span>
+        }
+      >
+        Predicted risk
+      </SectionTitle>
 
-      {loading ? (
-        <p className="py-10 text-center text-sm text-muted">Loading analytics…</p>
-      ) : (
+      {ready ? (
         <>
-          <dl className="flex flex-wrap gap-x-10 gap-y-4 border-b border-line pb-8">
-            {[
-              { label: 'Low risk', value: `${Math.round((riskCounts.Low / total) * 100)}%`, tone: 'text-emerald-soft' },
-              { label: 'Moderate', value: `${Math.round((riskCounts.Moderate / total) * 100)}%`, tone: 'text-amber-gentle' },
-              { label: 'High risk', value: `${Math.round((riskCounts.High / total) * 100)}%`, tone: 'text-rose-400' },
-            ].map((item) => (
-              <div key={item.label}>
-                <dt className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
-                  {item.label}
-                </dt>
-                <dd className={`mt-0.5 text-2xl font-semibold tabular-nums tracking-tight ${item.tone}`}>
-                  {item.value}
-                </dd>
+          <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
+            <div>
+              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Level</p>
+              <p className={clsx('mt-0.5 text-2xl font-semibold tracking-tight', mlRiskStyles[latest.risk].text)}>
+                {latest.risk}
+              </p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Risk score</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-ink">
+                {latest.score}
+                <span className="ml-1 text-xs font-normal text-muted">/ 100</span>
+              </p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Confidence</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{latest.confidence}%</p>
+            </div>
+          </div>
+          {focusRow && (
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">{nextStepFor(focusRow)}</p>
+          )}
+        </>
+      ) : (
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
+          Not enough signal to score yet — the model needs your marks, attendance and a well-being
+          conversation together. The charts below show what is still missing.
+        </p>
+      )}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Staff: course roll-up, referrals, governance, audit
+ * ------------------------------------------------------------------ */
+
+function Disclosure({
+  title,
+  meta,
+  children,
+}: {
+  title: string
+  meta?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <details className="group glass-ice rounded-xl">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-4 w-4 shrink-0 text-ice/60 transition group-open:rotate-90" />
+        <span className="text-sm font-semibold text-ink">{title}</span>
+        {meta ? (
+          <span className="ml-auto font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+            {meta}
+          </span>
+        ) : null}
+      </summary>
+      <div className="border-t border-line px-4 pt-4 pb-5">{children}</div>
+    </details>
+  )
+}
+
+function CourseRollup({ courses }: { courses: CourseInsight[] }) {
+  if (!courses.length) {
+    return (
+      <EmptyState>
+        No courses are assigned to you yet. An admin assigns a course by setting its instructor — until
+        then you cannot see its students.
+      </EmptyState>
+    )
+  }
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {courses.map((c) => (
+        <div key={c.id} className="rounded-xl border border-ice/10 bg-white/[0.03] px-4 py-3.5">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-semibold text-ink">{c.subject}</p>
+            <span
+              className={clsx(
+                'shrink-0 px-1.5 py-0.5 font-mono text-[10px] font-semibold',
+                c.atRisk > 0 ? riskTone.Medium : riskTone.Low,
+              )}
+            >
+              {c.atRisk} need attention
+            </span>
+          </div>
+          <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+            {(
+              [
+                { k: 'Students', v: c.students },
+                { k: 'Attendance', v: c.avgAttendance != null ? `${c.avgAttendance}%` : '—' },
+                { k: 'Marks', v: c.avgMarks != null ? `${c.avgMarks}%` : '—' },
+              ] as const
+            ).map((x) => (
+              <div key={x.k}>
+                <dt className="font-mono text-[9px] tracking-[0.1em] text-muted uppercase">{x.k}</dt>
+                <dd className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{x.v}</dd>
               </div>
             ))}
           </dl>
+          <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-relaxed text-muted">
+            Cohort well-being{' '}
+            <span className="font-semibold tabular-nums text-ink/80">
+              {c.avgWellbeing != null ? `${c.avgWellbeing}%` : 'no data'}
+            </span>
+            {c.wellbeingSample > 0 && (
+              <span className="text-muted/70"> · average of {c.wellbeingSample}</span>
+            )}
+          </p>
+        </div>
+      ))}
+    </div>
+  )
+}
 
-          <div>
-            <div className="flex items-center gap-2.5">
-              <CrystalMark size="sm" spinOnView />
-              <h2 className="text-sm font-semibold text-ink">Model weights</h2>
-            </div>
-            <ul className="mt-4 grid max-w-sm gap-3">
-              {weights.map((factor) => (
-                <li key={factor.name}>
-                  <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-muted">{factor.name}</span>
-                    <span className="font-semibold tabular-nums text-ink">{factor.value}%</span>
-                  </div>
-                  <div className="h-1 overflow-hidden bg-ice/10">
-                    <div className="h-full bg-ice" style={{ width: `${factor.value}%` }} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 max-w-sm text-xs leading-relaxed text-muted">
-              Missing features are neutral — a student with no mental-health conversations simply has no sentiment component.
+function ReferButton({ row, onDone }: { row: InsightRow; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('Slipping attendance or marks')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function submit() {
+    setBusy(true)
+    setErr(null)
+    try {
+      await analyticsApi.raiseReferral({ studentId: row.studentId, courseId: row.courseId, reason })
+      setOpen(false)
+      onDone()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not raise referral')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (row.referralOpen) {
+    return (
+      <span className="font-mono text-[10px] tracking-[0.1em] text-amber-gentle uppercase">referred</span>
+    )
+  }
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="rounded-lg border border-ice/20 px-2 py-1 text-[11px] text-ice/80 transition hover:border-ice/40 hover:bg-ice/5"
+      >
+        Refer for support
+      </button>
+    )
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        className="rounded-lg border border-ice/15 bg-thaw px-2 py-1 text-[11px] text-ice/80 outline-none focus:border-ice/35"
+      >
+        {[
+          'Slipping attendance or marks',
+          'Repeatedly absent',
+          'Needs a wellbeing check-in',
+          'Other academic concern',
+        ].map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={submit}
+        disabled={busy}
+        className="rounded-lg bg-ice/15 px-2 py-1 text-[11px] font-medium text-ice transition hover:bg-ice/25 disabled:opacity-50"
+      >
+        {busy ? 'Sending…' : 'Confirm'}
+      </button>
+      <button onClick={() => setOpen(false)} className="text-[11px] text-muted hover:text-ink">
+        Cancel
+      </button>
+      {err && <span className="text-[11px] text-rose-400">{err}</span>}
+    </div>
+  )
+}
+
+function ReferralQueue({ referrals, onChanged }: { referrals: Referral[]; onChanged: () => void }) {
+  if (!referrals.length) {
+    return <EmptyState>No referrals yet. Raise one from a student row above.</EmptyState>
+  }
+  return (
+    <div className="divide-y divide-line border-y border-line">
+      {referrals.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center gap-3 py-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-ink">
+              <span className="font-semibold">{r.student ?? 'Unknown student'}</span>
+              {r.course && <span className="text-muted"> · {r.course}</span>}
+            </p>
+            <p className="mt-0.5 text-xs text-muted">
+              {r.reason} · raised by {r.raisedBy ?? 'unknown'}
             </p>
           </div>
+          <span
+            className={clsx(
+              'px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase',
+              r.status === 'open'
+                ? riskTone.High
+                : r.status === 'acknowledged'
+                  ? riskTone.Medium
+                  : riskTone.Low,
+            )}
+          >
+            {r.status}
+          </span>
+          {r.canResolve && r.status !== 'closed' && (
+            <button
+              onClick={async () => {
+                await analyticsApi.resolveReferral(r.id, r.status === 'open' ? 'acknowledged' : 'closed')
+                onChanged()
+              }}
+              className="rounded-lg border border-ice/20 px-2 py-1 text-[11px] text-ice/80 transition hover:border-ice/40 hover:bg-ice/5"
+            >
+              {r.status === 'open' ? 'Acknowledge' : 'Close'}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
 
-          <div>
-            <div className="flex items-center gap-2.5">
-              <CrystalMark size="sm" spinOnView />
-              <h2 className="text-sm font-semibold text-ink">Risk matrix & interventions</h2>
+function Governance({ model }: { model: ModelGovernance | null }) {
+  if (!model) return <EmptyState>Model card unavailable.</EmptyState>
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {(
+        [
+          { k: 'Test accuracy', v: `${model.accuracyTest}%` },
+          { k: 'Full-sample accuracy', v: `${model.accuracyFull}%` },
+          { k: 'Students fully observed', v: `${model.coverage.pct}%` },
+        ] as const
+      ).map((x) => (
+        <div key={x.k} className="rounded-xl border border-ice/10 bg-white/[0.03] px-4 py-3">
+          <p className="font-mono text-[9px] tracking-[0.12em] text-muted uppercase">{x.k}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-ink">{x.v}</p>
+        </div>
+      ))}
+      <div className="sm:col-span-3">
+        <p className="text-xs leading-relaxed text-muted">
+          <span className="text-ink/80">{model.primaryModel}</span> · v{model.version} ·{' '}
+          {model.dataset.rows} training records ({model.dataset.trainRows} train / {model.dataset.testRows}{' '}
+          test). {model.coverage.fullyObserved} of {model.coverage.students} students currently have all
+          three features observed; the rest are scored with neutral imputation and flagged as such.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function AuditTrail({ entries }: { entries: AuditEntry[] }) {
+  if (!entries.length) return <EmptyState>No staff access recorded yet.</EmptyState>
+  return (
+    <div className="max-h-80 overflow-y-auto border-y border-line">
+      <table className="w-full text-left text-xs">
+        <thead className="sticky top-0 bg-thaw/95 backdrop-blur">
+          <tr className="font-mono text-[9px] tracking-[0.12em] text-muted uppercase">
+            <th className="py-2 pr-3 font-normal">Staff</th>
+            <th className="py-2 pr-3 font-normal">Action</th>
+            <th className="py-2 pr-3 font-normal">Student</th>
+            <th className="py-2 font-normal">When</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line/60">
+          {entries.map((e) => (
+            <tr key={e.id} className="text-muted">
+              <td className="py-1.5 pr-3 text-ink/90">
+                {e.actor}
+                <span className="ml-1 text-muted/60">({e.actorRole})</span>
+              </td>
+              <td className="py-1.5 pr-3 font-mono text-[10px]">{e.action}</td>
+              <td className="py-1.5 pr-3">{e.target ?? <span className="text-muted/50">—</span>}</td>
+              <td className="py-1.5 tabular-nums">{new Date(e.createdAt).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * Page
+ * ------------------------------------------------------------------ */
+
+export function AnalyticsPage() {
+  const [insights, setInsights] = useState<Insights | null>(null)
+  const [wellbeing, setWellbeing] = useState<WellbeingTrend | null>(null)
+  const [ml, setMl] = useState<MlSummary | null>(null)
+  const [referrals, setReferrals] = useState<Referral[]>([])
+  const [model, setModel] = useState<ModelGovernance | null>(null)
+  const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [filter, setFilter] = useState<'All' | RiskLevel>('All')
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    try {
+      const [i, w, m] = await Promise.all([
+        analyticsApi.insights(),
+        analyticsApi.wellbeing(),
+        // The student's own prediction; staff get an institution distribution
+        // here, which this compact page does not need.
+        mlApi.summary().catch(() => null),
+      ])
+      setInsights(i)
+      setWellbeing(w)
+      setMl(m)
+      // Referrals are staff-only; a 403 here is expected for students.
+      analyticsApi
+        .referrals()
+        .then(setReferrals)
+        .catch(() => setReferrals([]))
+      if (i.viewer.role === 'admin') {
+        analyticsApi.model().then(setModel).catch(() => setModel(null))
+        analyticsApi.audit().then(setAudit).catch(() => setAudit([]))
+      }
+    } catch {
+      setInsights(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const rows = useMemo(() => {
+    if (!insights) return []
+    return filter === 'All' ? insights.rows : insights.rows.filter((r) => r.risk === filter)
+  }, [insights, filter])
+
+  if (loading) {
+    return <p className="py-10 text-center text-sm text-muted">Loading analytics…</p>
+  }
+
+  if (!insights) {
+    return <p className="py-10 text-center text-sm text-muted">Analytics unavailable.</p>
+  }
+
+  const role = insights.viewer.role
+  const isStudent = role === 'student'
+  const isAdmin = role === 'admin'
+
+  // Students chart their own courses; staff chart course averages.
+  const marksPoints: BarPoint[] = isStudent
+    ? insights.rows.map((r) => ({ label: codeOf(r.subject), primary: r.ia1, secondary: r.ia2 }))
+    : insights.courses.map((c) => ({ label: codeOf(c.subject), primary: c.avgMarks, secondary: null }))
+
+  const attendancePoints = isStudent
+    ? insights.rows.map((r) => ({ label: codeOf(r.subject), value: r.attendance }))
+    : insights.courses.map((c) => ({ label: codeOf(c.subject), value: c.avgAttendance }))
+
+  const avgAttendance = avgOf(
+    isStudent ? insights.rows.map((r) => r.attendance) : insights.courses.map((c) => c.avgAttendance),
+  )
+  const avgMarks = avgOf(
+    isStudent ? insights.rows.map((r) => r.marks) : insights.courses.map((c) => c.avgMarks),
+  )
+
+  // The well-being % is the average of the per-session scores shown beside each
+  // conversation in the assistant — the same series the chart is drawn from.
+  const wellbeingPct = wellbeing?.averagePct ?? insights.avgWellbeing
+
+  const stats: { label: string; value: string; unit?: string; tone?: string }[] = isStudent
+    ? [
+        {
+          label: 'Risk',
+          value: ml?.latest?.risk ?? '—',
+          tone: ml?.latest ? mlRiskStyles[ml.latest.risk].text : undefined,
+        },
+        { label: 'Well-being', value: wellbeingPct != null ? String(wellbeingPct) : '—', unit: '%' },
+        { label: 'Attendance', value: avgAttendance != null ? String(avgAttendance) : '—', unit: '%' },
+        { label: 'Marks', value: avgMarks != null ? String(avgMarks) : '—', unit: '%' },
+      ]
+    : [
+        { label: 'Students', value: String(insights.students) },
+        { label: 'At risk', value: String(insights.counts.Medium + insights.counts.High) },
+        { label: 'Avg attendance', value: avgAttendance != null ? String(avgAttendance) : '—', unit: '%' },
+        {
+          label: 'Avg well-being',
+          value: wellbeingPct != null ? String(wellbeingPct) : '—',
+          unit: '%',
+        },
+      ]
+
+  const focusRow = isStudent
+    ? ([...insights.rows].sort((a, b) => b.score - a.score)[0] ?? null)
+    : null
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        eyebrow="Insights"
+        title={isStudent ? 'Your analysis' : 'Risk analytics'}
+        description={
+          isStudent
+            ? 'Marks, attendance and well-being — and the dropout risk they add up to.'
+            : isAdmin
+              ? 'Institution-wide risk, model governance and the staff access trail.'
+              : 'Risk across the courses you teach.'
+        }
+        aside={
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-ice/15 bg-ice/[0.06] px-2.5 py-1 font-mono text-[10px] tracking-[0.1em] text-ice/80 uppercase">
+            <ShieldCheck className="h-3 w-3" />
+            {insights.viewer.scope}
+          </span>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stats.map((s) => (
+          <StatChip key={s.label} label={s.label} value={s.value} unit={s.unit} tone={s.tone} />
+        ))}
+      </div>
+
+      {isStudent && <StudentRiskCard ml={ml} focusRow={focusRow} />}
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <ChartCard
+          title="Well-being"
+          caption={
+            isStudent
+              ? `Sentiment of your assistant sessions, oldest to newest${wellbeing?.sessions ? ` · ${wellbeing.sessions} session${wellbeing.sessions === 1 ? '' : 's'}` : ''}.`
+              : `Cohort average by week · ${wellbeing?.scope ?? ''}`
+          }
+          aside={
+            wellbeing
+              ? `${wellbeing.sessions} session${wellbeing.sessions === 1 ? '' : 's'} · ${
+                  wellbeing.averagePct != null ? `avg ${wellbeing.averagePct}%` : 'no score yet'
+                }`
+              : undefined
+          }
+        >
+          <SentimentChart points={wellbeing?.series ?? []} />
+        </ChartCard>
+
+        <ChartCard
+          title="Marks"
+          caption={isStudent ? 'IA1 vs IA2 by course.' : 'Average marks by course.'}
+        >
+          <MarksChart points={marksPoints} compare={isStudent} />
+        </ChartCard>
+
+        <ChartCard
+          title="Attendance"
+          caption={isStudent ? 'Attendance % by course.' : 'Average attendance by course.'}
+        >
+          <AttendanceChart points={attendancePoints} />
+        </ChartCard>
+      </div>
+
+      {!isStudent && (
+        <>
+          <Disclosure
+            title="Students & courses"
+            meta={`${insights.students} students · ${insights.openReferrals} open referrals`}
+          >
+            <CourseRollup courses={insights.courses} />
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-ink">Students</h3>
+              <div className="ml-auto flex gap-1">
+                {(['All', 'Low', 'Medium', 'High'] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilter(f)}
+                    className={clsx(
+                      'rounded-lg px-2 py-1 font-mono text-[10px] tracking-[0.1em] uppercase transition',
+                      filter === f ? 'bg-ice/15 text-ice' : 'text-muted hover:text-ink',
+                    )}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
             </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Individual well-being scores are withheld from teaching staff — the cohort average above is
+              all you get, plus a referral route.
+            </p>
             <div className="mt-3 divide-y divide-line border-y border-line">
-              {students.length === 0 && (
-                <p className="py-6 text-center text-sm text-muted">
-                  No enrollment data yet — enroll in courses and set attendance to see risk analysis.
-                </p>
+              {rows.length === 0 && (
+                <EmptyState>
+                  {filter === 'All'
+                    ? 'No students in your courses have attendance or marks recorded yet.'
+                    : `No students in your courses are ${filter.toLowerCase()} risk.`}
+                </EmptyState>
               )}
-              {students.map((student) => (
-                <div
-                  key={student.id}
-                  className="grid gap-3 py-4 lg:grid-cols-[1fr_120px_1.5fr] lg:items-center"
-                >
+              {rows.map((r) => (
+                <div key={r.enrollmentId} className="grid gap-3 py-4 lg:grid-cols-[1fr_110px_1fr] lg:items-center">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold text-ink">
-                        {student.name && <span className="mr-1 text-ice/70">{student.name}</span>}
-                        {student.subject}
+                        {r.name && <span className="mr-1 text-ice/70">{r.name}</span>}
+                        {r.subject}
                       </p>
-                      <span
-                        className={clsx(
-                          'px-1.5 py-0.5 font-mono text-[10px] font-semibold',
-                          riskColors[student.risk],
-                        )}
-                      >
-                        {student.risk} · {student.score}
+                      <span className={clsx('px-1.5 py-0.5 font-mono text-[10px] font-semibold', riskTone[r.risk])}>
+                        {r.risk} · {r.score}
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-muted">
-                      Attendance {student.attendance ?? '—'}% · IA-1 {student.ia1 ?? '—'} · IA-2 {student.ia2 ?? '—'}
+                      Marks {r.marks ?? '—'}% · Attendance {r.attendance ?? '—'}% ·{' '}
+                      {r.dataComplete ? 'all signals observed' : `${r.imputed.length} signal(s) imputed`}
                     </p>
                   </div>
-                  <div>
-                    <div className="h-1 overflow-hidden bg-ice/10">
-                      <div
-                        className={clsx(
-                          'h-full',
-                          student.risk === 'High'
-                            ? 'bg-rose-400'
-                            : student.risk === 'Moderate'
-                              ? 'bg-amber-gentle'
-                              : 'bg-emerald-soft',
-                        )}
-                        style={{ width: `${student.score}%` }}
-                      />
-                    </div>
+                  <div className="h-1 overflow-hidden bg-ice/10">
+                    <div className={clsx('h-full', riskBar[r.risk])} style={{ width: `${r.score}%` }} />
                   </div>
-                  <p className="text-sm leading-relaxed text-muted">{student.recommendation}</p>
+                  <div className="space-y-2">
+                    <p className="text-sm leading-relaxed text-muted">{nextStepFor(r)}</p>
+                    <ReferButton row={r} onDone={load} />
+                  </div>
                 </div>
               ))}
             </div>
-          </div>
-        <div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <CrystalMark size="sm" spinOnView />
-                <h2 className="text-sm font-semibold text-ink">Student profile — marks · attendance · sentiment</h2>
-              </div>
-              {students.length > 0 && (
-                <select
-                  value={selected?.id ?? ''}
-                  onChange={(e) => setSelectedId(Number(e.target.value))}
-                  className="rounded-lg border border-ice/10 bg-thaw px-2.5 py-1.5 text-[12px] text-ice/70 outline-none focus:border-ice/30"
-                >
-                  {students.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name ? `${s.name} · ` : ''}
-                      {s.subject}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
-              Marks = average of IA-1 &amp; IA-2 · Attendance = enrolment attendance % · Sentiment = latest assistant
-              well-being session. All on a 0–100 scale.
-            </p>
 
-            <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-              <div className="h-72">
-                {students.length > 0 && selected ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={radarData} outerRadius="72%">
-                      <PolarGrid stroke="rgba(148,163,184,0.18)" />
-                      <PolarAngleAxis
-                        dataKey="metric"
-                        tick={{ fontSize: 12, fill: 'rgba(148,163,184,0.95)' }}
-                      />
-                      <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                      <Radar
-                        dataKey="value"
-                        stroke="#7c5cfa"
-                        strokeWidth={2}
-                        fill="#7c5cfa"
-                        fillOpacity={0.28}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: '#0b1120',
-                          border: '1px solid rgba(148,163,184,0.2)',
-                          borderRadius: 8,
-                          fontSize: 12,
-                          color: '#e2e8f0',
-                        }}
-                        formatter={(value) => [`${value}%`, '']}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className="py-16 text-center text-sm text-muted">No enrollment data yet.</p>
-                )}
-              </div>
-              <div>
-                <dl className="space-y-3">
-                  {radarData.map((d) => {
-                    const present = d.value > 0
-                    return (
-                      <div key={d.metric}>
-                        <div className="mb-1 flex justify-between text-xs">
-                          <span className={clsx(present ? 'text-muted' : 'text-ice/40')}>{d.metric}</span>
-                          <span className={clsx('font-semibold tabular-nums text-ink', !present && 'text-ice/40')}>
-                            {present ? `${d.value}%` : '—'}
-                          </span>
-                        </div>
-                        <div className="h-1 overflow-hidden bg-ice/10">
-                          <div
-                            className={clsx(
-                              'h-full rounded-full',
-                              d.metric === 'Marks' ? 'bg-violet-soft' : d.metric === 'Attendance' ? 'bg-emerald-soft' : 'bg-amber-gentle',
-                            )}
-                            style={{ width: present ? `${d.value}%` : '0%' }}
-                          />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </dl>
-                {missingMetrics.length > 0 && (
-                  <p className="mt-4 text-xs leading-relaxed text-muted">
-                    No data for: {missingMetrics.join(', ')} — these show as 0 until recorded.
-                  </p>
-                )}
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-ink">Referrals</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                {isAdmin
+                  ? 'You can resolve these. Resolving is recorded in the audit trail.'
+                  : 'Cases you have handed to the safeguarding team. You can see their status, not the wellbeing data behind them.'}
+              </p>
+              <div className="mt-3">
+                <ReferralQueue referrals={referrals} onChanged={load} />
               </div>
             </div>
-          </div>
+          </Disclosure>
 
-          <div>
-            <div className="flex items-center gap-2.5">
-              <CrystalMark size="sm" spinOnView />
-              <h2 className="text-sm font-semibold text-ink">Chatbot well-being sentiment</h2>
-            </div>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
-              Average sentiment recorded by the AI assistant on mental-health conversations — computed per message in
-              chat history and rolled into a whole-session average.
-            </p>
-
-            <dl className="mt-4 flex flex-wrap gap-x-10 gap-y-4">
-              <div>
-                <dt className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Avg sentiment</dt>
-                <dd
-                  className={clsx(
-                    'mt-0.5 text-2xl font-semibold tabular-nums tracking-tight',
-                    sentiment.averagePct == null
-                      ? 'text-muted'
-                      : sentiment.averagePct >= 60
-                        ? 'text-emerald-soft'
-                        : sentiment.averagePct >= 40
-                          ? 'text-amber-gentle'
-                          : 'text-rose-400',
-                  )}
-                >
-                  {sentiment.averagePct != null ? `${sentiment.averagePct}%` : '—'}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Messages scored</dt>
-                <dd className="mt-0.5 text-2xl font-semibold tabular-nums tracking-tight text-ink">
-                  {sentiment.messages}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Sessions scored</dt>
-                <dd className="mt-0.5 text-2xl font-semibold tabular-nums tracking-tight text-ink">
-                  {sentiment.sessions}
-                </dd>
-              </div>
-            </dl>
-
-            <div className="mt-6 max-w-3xl">
-              {sentiment.weeks.filter((w) => w.sentiment != null).length > 0 ? (
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={sentiment.weeks.filter((w) => w.sentiment != null)}
-                      margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="sentimentFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#4ade80" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#4ade80" stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
-                      <XAxis
-                        dataKey="week"
-                        tick={{ fontSize: 11, fill: 'rgba(148,163,184,0.9)' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        domain={[0, 100]}
-                        width={30}
-                        tick={{ fontSize: 11, fill: 'rgba(148,163,184,0.9)' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: '#0b1120',
-                          border: '1px solid rgba(148,163,184,0.2)',
-                          borderRadius: 8,
-                          fontSize: 12,
-                          color: '#e2e8f0',
-                        }}
-                        labelStyle={{ color: '#94a3b8' }}
-                        formatter={(value) => [`${value}%`, 'Sentiment (0–100)']}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="sentiment"
-                        stroke="#4ade80"
-                        strokeWidth={2}
-                        fill="url(#sentimentFill)"
-                        connectNulls
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="py-6 text-center text-sm text-muted">
-                  No mental-health chat sentiment yet — start a well-being conversation in the AI assistant to build
-                  this trend.
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="border-t border-line pt-10">
-            <MlRiskPanel showRoster={isStaff} />
-          </div>
+          <Disclosure title="How this is scored">
+            <MlRiskPanel />
+          </Disclosure>
         </>
+      )}
+
+      {isAdmin && (
+        <Disclosure title="Governance & access trail" meta="admin only">
+          <h3 className="text-sm font-semibold text-ink">Model governance</h3>
+          <div className="mt-3">
+            <Governance model={model} />
+          </div>
+          <h3 className="mt-6 text-sm font-semibold text-ink">Staff access trail</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Every read of a student&apos;s records by staff is logged here, so access to sensitive data is
+            attributable.
+          </p>
+          <div className="mt-3">
+            <AuditTrail entries={audit} />
+          </div>
+        </Disclosure>
       )}
     </div>
   )

@@ -35,6 +35,56 @@ model User {
   clubMessages ClubMessage[]
   ownedClubs   Club[]
   postVotes    PostVote[]
+  coursesTaught      Course[]              @relation("CourseInstructor")
+  auditLogsWritten   AuditLog[]            @relation("AuditActor")
+  auditLogsAgainst   AuditLog[]            @relation("AuditTarget")
+  referralsRaised    WellbeingReferral[]   @relation("ReferralRaisedBy")
+  referralsReceived  WellbeingReferral[]   @relation("ReferralStudent")
+}
+
+/// Every time staff read a student's academic or wellbeing data, so that
+/// access to sensitive student records is attributable and reviewable.
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actorId   Int
+  actor     User     @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action    String
+  targetId  Int?
+  target    User?    @relation("AuditTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  scope     String?
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetId])
+}
+
+/// A teacher's "this student may need support" flag. Deliberately carries no
+/// wellbeing score: the teacher sees the ask, staff with safeguarding duty
+/// resolve it.
+model WellbeingReferral {
+  id         Int       @id @default(autoincrement())
+  studentId  Int
+  student    User      @relation("ReferralStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  courseId   Int?
+  course     Course?   @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  raisedById Int
+  raisedBy   User      @relation("ReferralRaisedBy", fields: [raisedById], references: [id], onDelete: Cascade)
+  reason     String
+  note       String?
+  status     String    @default("open")
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  // Deliberately NOT unique on (studentId, courseId, raisedById). That would
+  // make a referral permanent: once a case is closed the teacher could never
+  // raise a new concern about the same student in the same course, even after
+  // the student has relapsed. It is also wrong for the nullable courseId, since
+  // SQL treats NULLs as distinct and the index would never fire. The "one open
+  // referral per student/course/raiser" rule is enforced in the route instead,
+  // which can scope it to status = 'open'.
+  @@index([studentId, courseId, raisedById, status])
+  @@index([status])
 }
 
 model Session {
@@ -69,6 +119,10 @@ model ChatMessage {
   riskLevel String?
   label     String?
   score     Float?
+  /// Provenance of `score`: which scorer produced it and the evidence behind it.
+  sentimentSource     String?
+  sentimentConfidence Float?
+  sentimentDetail     String?
   createdAt DateTime     @default(now())
 }
 
@@ -104,6 +158,10 @@ model Course {
   code        String        @unique
   credits     Int           @default(3)
   instructor  String?
+  /// FK to the teaching staff account. `instructor` is a free-text display
+  /// name kept for import compatibility; authorisation uses this column.
+  instructorId Int?
+  instructorUser User?    @relation("CourseInstructor", fields: [instructorId], references: [id], onDelete: SetNull)
   color       String?
   attendance  Int?
   grade       Int?
@@ -113,6 +171,7 @@ model Course {
   submissions Submission[]
   assignments Assignment[]
   sessions    ClassSession[]
+  referrals   WellbeingReferral[]
 }
 
 model ClassSession {
@@ -162,23 +221,43 @@ model Enrollment {
 }
 
 model Assignment {
-  id        Int      @id @default(autoincrement())
-  courseId  Int
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  title     String
-  due       String?
-  createdAt DateTime @default(now())
+  id            Int          @id @default(autoincrement())
+  courseId      Int
+  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title         String
+  due           String?
+  instructions  String?
+  pdfName       String?
+  pdfStoredAs   String?
+  pdfMime       String?
+  pdfSize       Int?
+  createdAt     DateTime     @default(now())
+  submissions   Submission[]
+
+  @@index([courseId])
 }
 
 model Submission {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId  Int
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  type      String   @default("assignment")
-  score     Float?
-  createdAt DateTime @default(now())
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId     Int
+  course       Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assignmentId Int?
+  assignment   Assignment? @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  type         String     @default("assignment")
+  score        Float?
+  notes        String?
+  fileName     String?
+  fileStoredAs String?
+  fileMime     String?
+  fileSize     Int?
+  gradedAt     DateTime?
+  feedback     String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, assignmentId])
+  @@index([assignmentId])
 }
 
 model Post {
