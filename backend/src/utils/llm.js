@@ -1,9 +1,3 @@
-import {
-  EMOTION_VALENCE,
-  EMOTION_VALENCE_SOURCE,
-  SENTIMENT_MODEL_VERSION,
-} from './emotionValence.js'
-
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
 const HF_URL = (process.env.HF_BASE_URL || 'https://router.huggingface.co/hf-inference').replace(/\/+$/, '')
@@ -14,7 +8,6 @@ export const modelConfig = {
   groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
   groqFastModel: process.env.GROQ_FAST_MODEL || 'openai/gpt-oss-20b',
   groqSttModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
-  emotionModel: process.env.HF_EMOTION_MODEL || 'SamLowe/roberta-base-go_emotions',
   embedModel: process.env.HF_EMBED_MODEL || 'BAAI/bge-base-en-v1.5',
 }
 
@@ -227,6 +220,7 @@ export async function groqTranscribe({ buffer, mimeType = 'audio/wav', filename 
   const form = new FormData()
   form.append('model', modelConfig.groqSttModel)
   form.append('file', new Blob([buffer], { type: mimeType }), filename)
+  form.append('language', 'en')
 
   const res = await fetchWithTimeout(GROQ_STT_URL, {
     method: 'POST',
@@ -266,62 +260,6 @@ export async function hfRequest(model, payload, params = '', timeoutMs = 45000) 
     }
   }
   throw lastErr
-}
-
-export async function hfEmotionAnalysis(text) {
-  const data = await hfRequest(modelConfig.emotionModel, { inputs: text })
-  if (!Array.isArray(data)) throw new Error('Unexpected HF emotion response')
-
-  const entries = Array.isArray(data[0]) ? data[0] : data
-  if (!Array.isArray(entries) || !entries.length) throw new Error('No HF emotion labels returned')
-
-  const total = entries.reduce((sum, e) => sum + (Number(e.score) || 0), 0) || 1
-  const dist = entries
-    .map((e) => {
-      const label = String(e.label || '').toLowerCase()
-      const p = (Number(e.score) || 0) / total
-      return { label, p, valence: EMOTION_VALENCE[label] ?? 0.5 }
-    })
-    .sort((a, b) => b.p - a.p)
-
-  const top = dist[0]
-  const valence = Math.max(0, Math.min(1, dist.reduce((sum, e) => sum + e.p * e.valence, 0)))
-  const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d
-
-  return {
-    emotion: top.label,
-    sentiment: round(valence, 2),
-    // Certainty in the dominant emotion: low values mean the score is a blend of
-    // several emotions and should be read as softer evidence.
-    confidence: round(top.p, 2),
-    detail: {
-      version: SENTIMENT_MODEL_VERSION,
-      model: modelConfig.emotionModel,
-      valenceSource: EMOTION_VALENCE_SOURCE,
-      method: 'expected_valence',
-      valence: round(valence, 3),
-      probabilities: dist
-        .slice(0, 6)
-        .map((e) => ({ label: e.label, p: round(e.p, 3), valence: e.valence })),
-    },
-  }
-}
-
-/**
- * Preferred sentiment entry point.
- *
- * The local ONNX model needs no network or credentials, so it is tried first;
- * the hosted HF model is only used if the local one fails to load. Callers fall
- * back to the lexicon (`analyzeSentiment`) if both are unavailable.
- */
-export async function analyzeEmotion(text) {
-  try {
-    const { localSentimentAnalysis } = await import('./localEmotion.js')
-    return await localSentimentAnalysis(text)
-  } catch (localErr) {
-    if (hasHf()) return hfEmotionAnalysis(text)
-    throw localErr
-  }
 }
 
 export async function hfEmbed(texts) {

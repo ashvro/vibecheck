@@ -4,7 +4,6 @@ import {
   AtSign,
   CalendarDays,
   GraduationCap,
-  HeartPulse,
   Lock,
   MoonStar,
   Pencil,
@@ -16,15 +15,17 @@ import { CrystalMark } from '../../components/CrystalMark'
 import { api, getUser } from '../../lib/api'
 
 type ProfileStats = {
-  checkIns: number
   enrollments: number
   avgAttendance: number | null
   cgpa: number | null
-  latestMood: string | null
+  posts?: number
+  messages?: number
+  clubs?: number
 }
 
 type ClubSummary = { id: number; name: string; members: number; tags: string[] }
-type MoodEntry = { mood: string; createdAt: string }
+const VIBE_TAG_RE = /^[A-Za-z0-9_]{3,20}$/
+type TagStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
 type MeResponse = {
   id: number
   name: string
@@ -34,6 +35,7 @@ type MeResponse = {
   year: string | null
   avatar: string | null
   createdAt: string
+  vibeTag?: string | null
   preferences: { anonymousDefault: boolean; nudges: boolean; nightMode: boolean }
 }
 
@@ -77,22 +79,25 @@ function Toggle({
   )
 }
 
-const moodScore: Record<string, number> = { great: 5, okay: 3, low: 2, stressed: 1 }
-
 export function ProfilePage() {
-  const [anonymous, setAnonymous] = useState(true)
   const [notifications, setNotifications] = useState(true)
   const [nightMode, setNightMode] = useState(true)
   const [stats, setStats] = useState<ProfileStats | null>(null)
   const [clubs, setClubs] = useState<ClubSummary[]>([])
-  const [moods, setMoods] = useState<MoodEntry[]>([])
   const [me, setMe] = useState<MeResponse | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editDraft, setEditDraft] = useState({ name: '', major: '', year: '' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [vibeTagError, setVibeTagError] = useState('')
+  const [showTagModal, setShowTagModal] = useState(false)
+  const [tagDraft, setTagDraft] = useState('')
+  const [tagStatus, setTagStatus] = useState<TagStatus>('idle')
+  const [savingTag, setSavingTag] = useState(false)
 
   const storedUser = getUser()
+  // Show the tag from the server once loaded, else the one cached at sign-in/sign-up.
+  const displayTag = (me ? (me.vibeTag || '') : String(storedUser?.vibeTag || '')).trim()
   const name = me?.name || (storedUser?.name as string) || 'Student'
   const email = me?.email || (storedUser?.email as string) || ''
   const major = me?.major ?? null
@@ -114,12 +119,17 @@ export function ProfilePage() {
         )
       }
     }).catch(() => {})
-    api.get<MoodEntry[]>('/api/moods?limit=7').then(setMoods).catch(() => {})
     api.get<MeResponse>('/api/auth/me').then((m) => {
       setMe(m)
       setEditDraft({ name: m.name || '', major: m.major || '', year: m.year || '' })
+      // First thing on Profile: claim your VibeTag (required before posting in Community).
+      if (!m.vibeTag) {
+        setSaved(false)
+        setVibeTagError('')
+        setTagDraft('')
+        setShowTagModal(true)
+      }
       if (m.preferences) {
-        setAnonymous(m.preferences.anonymousDefault)
         setNotifications(m.preferences.nudges)
         setNightMode(m.preferences.nightMode)
       }
@@ -128,12 +138,52 @@ export function ProfilePage() {
 
   useEffect(() => {
     if (!me) return
-    api.patch('/api/auth/preferences', { anonymousDefault: anonymous, nudges: notifications, nightMode }).catch(() => {})
-  }, [anonymous, notifications, nightMode, me])
+    api.patch('/api/auth/preferences', { nudges: notifications, nightMode }).catch(() => {})
+  }, [notifications, nightMode, me])
+
+  // Live availability while editing your tag (your own current tag counts as available).
+  useEffect(() => {
+    const tag = tagDraft.trim()
+    const current = (displayTag || '').trim()
+    if (!tag) {
+      setTagStatus('idle')
+      return
+    }
+    if (!VIBE_TAG_RE.test(tag)) {
+      setTagStatus('invalid')
+      return
+    }
+    if (current && tag === current) {
+      setTagStatus('available')
+      return
+    }
+    setTagStatus('checking')
+    const timer = setTimeout(() => {
+      fetch(`/api/auth/vibetag/check?tag=${encodeURIComponent(tag)}`)
+        .then((r) => r.json())
+        .then((d: { available?: boolean }) => setTagStatus(d.available ? 'available' : 'taken'))
+        .catch(() => setTagStatus('idle'))
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [tagDraft, displayTag])
 
   function openEditModal() {
     setEditDraft({ name: me?.name || name, major: major || '', year: year || '' })
     setShowEditModal(true)
+    setSaved(false)
+  }
+
+  /** The dedicated "edit my unique VibeTag" flow. */
+  function openVibeTagModal() {
+    setTagDraft((displayTag || '').trim())
+    setVibeTagError('')
+    setSaved(false)
+    setShowTagModal(true)
+  }
+
+  function generateVibeTag() {
+    setTagDraft('vibe' + String(Math.floor(100000 + Math.random() * 900000)))
+    setVibeTagError('')
   }
 
   async function saveProfile() {
@@ -146,25 +196,42 @@ export function ProfilePage() {
         year: editDraft.year.trim() || null,
       })
       setMe(updated)
-      localStorage.setItem('vibecheck.user', JSON.stringify({ ...storedUser, name: updated.name, email: updated.email }))
+      localStorage.setItem('vibecheck.user', JSON.stringify({ ...storedUser, name: updated.name, email: updated.email, vibeTag: updated.vibeTag }))
       setSaved(true)
       setShowEditModal(false)
       setTimeout(() => setSaved(false), 2000)
-    } catch {
-      /* drop */
+    } catch (e) {
+      console.error(e)
     } finally {
       setSaving(false)
     }
   }
 
-  const moodWeek = Array(7).fill(null).map((_, i) => {
-    const entry = moods[i]
-    return { score: entry ? (moodScore[entry.mood] ?? 3) : 0, hasEntry: !!entry }
-  })
-
-  const moodBars = moodWeek.map((d) => d.score || 0)
-  const moodDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-  const lastMood = stats?.latestMood ?? null
+  async function saveVibeTag() {
+    const tag = tagDraft.trim()
+    if (!VIBE_TAG_RE.test(tag)) {
+      setVibeTagError('Use 3–20 characters: letters, numbers, or underscores.')
+      return
+    }
+    if (tagStatus === 'taken') {
+      setVibeTagError('That VibeTag is already taken. Try another one.')
+      return
+    }
+    setSavingTag(true)
+    try {
+      const updated = await api.patch<MeResponse>('/api/auth/me', { vibeTag: tag })
+      setMe(updated)
+      localStorage.setItem('vibecheck.user', JSON.stringify({ ...storedUser, name: updated.name, email: updated.email, vibeTag: updated.vibeTag }))
+      setShowTagModal(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not save your VibeTag.'
+      setVibeTagError(message)
+    } finally {
+      setSavingTag(false)
+    }
+  }
 
   return (
     <div className="relative overflow-hidden">
@@ -217,6 +284,26 @@ export function ProfilePage() {
               <p className="mt-1 font-mono text-[11px] tracking-[0.16em] text-muted uppercase">
                 {[major, year].filter(Boolean).join(' · ') || 'No academic details set'}
               </p>
+              {displayTag ? (
+                <button
+                  type="button"
+                  onClick={openVibeTagModal}
+                  title="Change your VibeTag"
+                  className="mt-2.5 inline-flex items-center gap-2 rounded-md border border-violet/40 bg-violet/10 px-2.5 py-1 font-mono text-[12px] tracking-[0.18em] text-violet-soft transition hover:border-violet hover:bg-violet/20"
+                >
+                  <AtSign className="h-3.5 w-3.5" /> {displayTag}
+                  <Pencil className="h-3 w-3 opacity-70" />
+                  <span className="sr-only">Change your VibeTag</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openVibeTagModal}
+                  className="mt-2.5 inline-flex items-center gap-2 rounded-md border border-dashed border-rose-400/50 bg-rose-400/10 px-2.5 py-1 font-mono text-[12px] tracking-[0.18em] text-rose-300 transition hover:border-rose-400 hover:bg-rose-400/20"
+                >
+                  <Sparkles className="h-3.5 w-3.5" /> Create your VibeTag to post
+                </button>
+              )}
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-muted">
                 {email && (
                   <span className="flex items-center gap-1.5">
@@ -244,7 +331,7 @@ export function ProfilePage() {
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            { label: 'Check-ins', value: String(stats?.checkIns ?? 0), unit: 'total' },
+            { label: 'Posts', value: String(stats?.posts ?? 0), unit: 'total' },
             { label: 'Courses enrolled', value: String(stats?.enrollments ?? 0), unit: 'active' },
             { label: 'Attendance', value: stats?.avgAttendance != null ? `${stats.avgAttendance}%` : '—', unit: 'avg' },
             { label: 'Risk status', value: stats?.avgAttendance != null && stats.avgAttendance >= 80 ? 'Low' : stats?.avgAttendance != null ? 'Moderate' : '—', unit: 'clear' },
@@ -264,47 +351,60 @@ export function ProfilePage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
-          <section className="glass-ice p-6">
-            <div className="flex items-center gap-2.5">
-              <CrystalMark size="sm" spinOnView />
-              <h2 className="text-sm font-semibold text-ink">Well-being pulse</h2>
-              <span className="ml-auto font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
-                Last 7 days
-              </span>
-            </div>
+          <section className="glass-ice relative overflow-hidden p-6">
+            <div className="chat-shine pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden />
+            <div className="relative z-10">
+              <div className="flex items-center gap-2.5">
+                <CrystalMark size="sm" spinOnView />
+                <h2 className="text-sm font-semibold text-ink">Your VibeTag</h2>
+                <span className="ml-auto font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
+                  Gamertag
+                </span>
+              </div>
 
-            <div className="mt-5 flex h-20 items-end gap-2">
-              {moodBars.map((h, i) => (
-                <div key={i} className="flex flex-1 flex-col items-center gap-1.5">
-                  <div
-                    className={clsx(
-                      'w-2.5 rounded-sm bg-gradient-to-t',
-                      h === 0
-                        ? 'from-line/40 to-line/40'
-                        : i === Math.floor(moodBars.length / 2)
-                          ? 'from-ice to-ice-bright'
-                          : 'from-violet/40 to-violet-soft/70',
-                    )}
-                    style={{ height: h > 0 ? `${(h / 5) * 100}%` : '8%' }}
-                  />
-                  <span className="font-mono text-[9px] text-muted/70">{moodDays[i]}</span>
+              {displayTag ? (
+                <>
+                  <p className="mt-5 font-mono text-3xl font-bold tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-r from-frost via-ice-bright to-violet-soft">
+                    {displayTag}
+                  </p>
+                  <p className="mt-2 text-xs text-muted">
+                    This is how you appear in Community when you post with your identity on.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openVibeTagModal}
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg border border-ice/15 bg-ice/[0.05] px-3.5 py-1.5 font-mono text-[10px] tracking-[0.14em] text-ice/70 uppercase transition hover:border-ice/30 hover:bg-ice/10 hover:text-ice"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Change VibeTag
+                  </button>
+                </>
+              ) : (
+                <div className="mt-5 rounded-xl border border-dashed border-rose-400/40 bg-rose-400/[0.07] p-5">
+                  <p className="text-sm font-medium text-rose-300">
+                    You haven’t created a VibeTag yet.
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Pick a unique tag like a gamertag — you’ll need it before you can post or
+                    comment in Community.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openVibeTagModal}
+                    className="glow-cta mt-4 inline-flex items-center gap-2 rounded-lg bg-ice px-4 py-2 text-sm font-semibold text-thaw transition hover:bg-ice-bright"
+                  >
+                    <Sparkles className="h-4 w-4" /> Create VibeTag
+                  </button>
                 </div>
-              ))}
-            </div>
+              )}
 
-            <div className="mt-5 flex flex-wrap gap-2">
-              {lastMood && (
-                <span className="inline-flex items-center gap-2 rounded-full border border-ice/12 bg-ice/[0.05] px-3.5 py-1.5 text-sm font-medium text-ice">
-                  <HeartPulse className="h-4 w-4 text-violet-soft" />
-                  Last check-in: {lastMood}
-                </span>
-              )}
-              {nightMode && (
-                <span className="inline-flex items-center gap-2 rounded-full border border-ice/12 bg-ice/[0.05] px-3.5 py-1.5 text-sm font-medium text-ice">
-                  <MoonStar className="h-4 w-4 text-violet-soft" />
-                  Night study mode
-                </span>
-              )}
+              <div className="mt-5 flex flex-wrap gap-2">
+                {nightMode && (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-ice/12 bg-ice/[0.05] px-3.5 py-1.5 text-sm font-medium text-ice">
+                    <MoonStar className="h-4 w-4 text-violet-soft" />
+                    Night study mode
+                  </span>
+                )}
+              </div>
             </div>
           </section>
 
@@ -343,12 +443,35 @@ export function ProfilePage() {
             <h2 className="text-sm font-semibold text-ink">Privacy & preferences</h2>
           </div>
           <div className="mt-3 divide-y divide-line/60">
-            <Toggle
-              label="Anonymous by default"
-              hint="Community posts stay authorless unless you choose otherwise"
-              on={anonymous}
-              onChange={setAnonymous}
-            />
+            <div className="flex w-full items-center justify-between gap-4 py-3 text-left">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-ink/90">
+                  Identity in Community
+                </span>
+                <span className="block text-xs text-muted">
+                  Posts and comments are always shown under your VibeTag — never “Anonymous”
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span
+                  className={clsx(
+                    'rounded-md border px-2 py-1 font-mono text-[11px] tracking-[0.14em]',
+                    displayTag
+                      ? 'border-violet/40 bg-violet/10 text-violet-soft'
+                      : 'border-rose-400/40 bg-rose-400/10 text-rose-300',
+                  )}
+                >
+                  {displayTag || 'not set'}
+                </span>
+                <button
+                  type="button"
+                  onClick={openVibeTagModal}
+                  className="rounded-lg border border-ice/15 bg-ice/[0.05] px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] text-ice/70 uppercase transition hover:border-ice/30 hover:bg-ice/10 hover:text-ice"
+                >
+                  {displayTag ? 'Change' : 'Create'}
+                </button>
+              </span>
+            </div>
             <Toggle
               label="Daily wellness nudges"
               hint="Gentle reminders and support prompts when risk signals dip"
@@ -441,6 +564,113 @@ export function ProfilePage() {
                   className="glow-cta rounded-lg bg-ice px-4 py-1.5 text-sm font-semibold text-thaw transition hover:bg-ice-bright disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showTagModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="glass-ice mx-4 max-w-md w-full rounded-2xl p-6">
+              <div className="mb-4 flex items-center gap-2.5">
+                <CrystalMark size="sm" />
+                <h2 className="text-sm font-semibold text-ink">
+                  {displayTag ? 'Edit your VibeTag' : 'Create your VibeTag'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowTagModal(false)}
+                  className="ml-auto text-muted hover:text-ink"
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-violet/30 bg-violet/10 px-4 py-3">
+                <p className="font-mono text-[9px] tracking-[0.14em] text-violet-soft uppercase">
+                  Your identity
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Shown on every post and comment you make in Community — never “Anonymous”.
+                </p>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+                    VibeTag
+                  </label>
+                  <button
+                    type="button"
+                    onClick={generateVibeTag}
+                    className="font-mono text-[9px] tracking-[0.14em] text-violet-soft uppercase transition hover:text-ice"
+                  >
+                    ✦ Generate
+                  </button>
+                </div>
+                <div className="relative mt-1.5">
+                  <AtSign className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ice/40" />
+                  <input
+                    value={tagDraft}
+                    onChange={(e) => {
+                      setTagDraft(e.target.value)
+                      setVibeTagError('')
+                    }}
+                    placeholder="e.g. pixel_ronin"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    autoFocus
+                    className="w-full rounded-lg border border-ice/10 bg-thaw py-2.5 pr-3 pl-9 font-mono text-sm tracking-wide text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
+                  />
+                </div>
+                <p
+                  className={
+                    'mt-1.5 text-[11px] ' +
+                    (vibeTagError ||
+                    tagStatus === 'taken' ||
+                    tagStatus === 'invalid'
+                      ? 'text-rose-400'
+                      : tagStatus === 'available'
+                        ? 'text-emerald-soft'
+                        : 'text-muted')
+                  }
+                >
+                  {vibeTagError ||
+                    (!tagDraft.trim()
+                      ? '3–20 characters: letters, numbers, or underscores.'
+                      : tagStatus === 'checking'
+                        ? 'Checking availability…'
+                        : tagStatus === 'available'
+                          ? '✓ Available — this tag is yours.'
+                          : tagStatus === 'taken'
+                            ? 'That VibeTag is already taken. Try another.'
+                            : 'Use 3–20 characters: letters, numbers, or underscores.')}
+                </p>
+              </div>
+
+              <div className="mt-5 flex items-center justify-end gap-2 border-t border-ice/10 pt-3.5">
+                <button
+                  type="button"
+                  onClick={() => setShowTagModal(false)}
+                  className="px-3 py-1.5 text-sm font-semibold text-muted hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveVibeTag}
+                  disabled={
+                    savingTag ||
+                    tagStatus === 'taken' ||
+                    tagStatus === 'checking' ||
+                    !VIBE_TAG_RE.test(tagDraft.trim())
+                  }
+                  className="glow-cta rounded-lg bg-ice px-4 py-1.5 text-sm font-semibold text-thaw transition hover:bg-ice-bright disabled:opacity-50"
+                >
+                  {savingTag ? 'Saving…' : displayTag ? 'Save VibeTag' : 'Create VibeTag'}
                 </button>
               </div>
             </div>

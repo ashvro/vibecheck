@@ -27,7 +27,6 @@ function ProbBar({ prediction }: { prediction: MlPrediction }) {
 }
 
 function PredictForm() {
-  const [sentiment, setSentiment] = useState(0.6)
   const [attendance, setAttendance] = useState(75)
   const [cgpa, setCgpa] = useState(7)
   const [out, setOut] = useState<MlPrediction | null>(null)
@@ -37,7 +36,7 @@ function PredictForm() {
     e.preventDefault()
     setBusy(true)
     try {
-      setOut(await mlApi.predict({ sentiment, attendance, cgpa }))
+      setOut(await mlApi.predict({ attendance, cgpa }))
     } catch {
       setOut(null)
     } finally {
@@ -49,7 +48,6 @@ function PredictForm() {
     <form onSubmit={run} className="mt-4 max-w-lg space-y-3">
       {(
         [
-          { label: 'Well-being sentiment', value: sentiment, min: 0, max: 1, step: 0.01, set: setSentiment, suffix: '' },
           { label: 'Attendance', value: attendance, min: 0, max: 100, step: 1, set: setAttendance, suffix: '%' },
           { label: 'CGPA', value: cgpa, min: 0, max: 10, step: 0.1, set: setCgpa, suffix: ' / 10' },
         ] as const
@@ -152,19 +150,18 @@ export function MlRiskPanel() {
         </div>
         <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted">
           Trained on {info?.dataset.rows ?? 0} student records ({info?.dataset.trainRows ?? 0} train /{' '}
-          {info?.dataset.testRows ?? 0} test). Features — attendance, well-being sentiment and CGPA — are
+          {info?.dataset.testRows ?? 0} test). Features — attendance and CGPA — are
           combined by a fitted classifier. This is the only risk model in the product, so the numbers on the
           tables above and the score in the sandbox below come from the same predictor.
         </p>
 
         {info && (
           <>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {(
                 [
                   { label: 'Marks (CGPA)', value: info.labelWeights.marks },
                   { label: 'Attendance', value: info.labelWeights.attendance },
-                  { label: 'Well-being Sentiment', value: info.labelWeights.sentiment },
                 ] as const
               ).map((f) => (
                 <div key={f.label} className="rounded-xl border border-ice/10 bg-white/[0.03] px-3.5 py-3">

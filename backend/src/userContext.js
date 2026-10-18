@@ -10,19 +10,13 @@ function fmtDate(value) {
 }
 
 export async function buildUserContext(userId) {
-  const [user, enrollments, checkIns, sessions, memberships, posts] = await Promise.all([
+  const [user, enrollments, checkIns, memberships, posts] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { name: true, role: true, major: true, year: true },
     }),
     prisma.enrollment.findMany({ where: { userId }, include: { course: true } }),
     prisma.checkIn.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 7 }),
-    prisma.chatSession.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      take: 5,
-      select: { sentimentScore: true },
-    }),
     prisma.clubMember.findMany({
       where: { userId },
       include: { club: { select: { name: true } } },
@@ -58,16 +52,10 @@ export async function buildUserContext(userId) {
     }
   }
 
-  const sentiment = sessions.find((s) => s.sentimentScore != null)?.sentimentScore ?? null
-  if (sentiment != null) {
-    lines.push(`Well-being sentiment (latest assistant session): ${sentiment}`)
-  }
-
   if (checkIns.length) {
     lines.push('Recent mood check-ins (most recent first):')
     for (const c of checkIns) {
-      const score = c.score != null && c.label != null ? ` (${c.label}, ${Math.round(c.score * 100)}%)` : ''
-      lines.push(` - ${fmtDate(c.createdAt)}: mood "${c.mood}"${score}`)
+      lines.push(` - ${fmtDate(c.createdAt)}: mood "${c.mood}"`)
     }
   }
 
@@ -84,7 +72,6 @@ export async function buildUserContext(userId) {
   const weightOf = (name) => factorWeights.find((f) => f.name === name)?.value ?? 0
   const wGrade = weightOf('Grades') / 100
   const wAtt = weightOf('Attendance') / 100
-  const wSent = weightOf('Well-being Sentiment') / 100
 
   let grade = null
   let attendance = null
@@ -98,12 +85,11 @@ export async function buildUserContext(userId) {
     }
   }
 
-  const weightSum = (grade != null ? wGrade : 0) + (attendance != null ? wAtt : 0) + (sentiment != null ? wSent : 0)
-  if (weightSum > 0 && (grade != null || attendance != null || sentiment != null)) {
+  const weightSum = (grade != null ? wGrade : 0) + (attendance != null ? wAtt : 0)
+  if (weightSum > 0 && (grade != null || attendance != null)) {
     const contribution =
       (grade != null ? (grade / 100) * wGrade : 0) +
-      (attendance != null ? (attendance / 100) * wAtt : 0) +
-      (sentiment != null ? sentiment * wSent : 0)
+      (attendance != null ? (attendance / 100) * wAtt : 0)
     const score = Math.round((1 - contribution / weightSum) * 100)
     const risk = score < 30 ? 'Low' : score < 55 ? 'Moderate' : 'High'
     lines.push(`Risk assessment (analytics model): ${risk} risk (score ${score}/100)`)

@@ -3,14 +3,12 @@
  *
  * Three views, one rule set:
  *
- *   student  self only. Sees their own risk, marks, attendance and wellbeing.
+ *   student  self only. Sees their own risk, marks and attendance.
  *   teacher  only students enrolled in courses they teach (Course.instructorId).
- *            Sees per-student marks and attendance, but never an individual's
- *            wellbeing score - only course-level aggregates, plus a referral
- *            action that hands the case to staff with a safeguarding duty.
- *   admin    institution wide, and the only role that can resolve a referral,
- *            so the only role that can see individual wellbeing. Every read of
- *            a student's records is written to the audit log.
+ *            Sees per-student marks and attendance, plus a referral action that
+ *            hands a concern to staff with a safeguarding duty.
+ *   admin    institution wide, and the only role that can resolve a referral.
+ *            Every read of a student's records is written to the audit log.
  *
  * A course with no instructorId belongs to nobody: no teacher can see its
  * students until an admin assigns an instructor. Admins always can.
@@ -31,18 +29,6 @@ export function isAdmin(user) {
 
 export function isTeacher(user) {
   return roleOf(user) === ROLE.TEACHER
-}
-
-/**
- * Can this viewer see one specific student's wellbeing score?
- *
- * Students their own, admins for safeguarding, teachers never - not even for
- * their own students. A teacher gets the aggregate and the referral instead.
- */
-export function canSeeWellbeing(user, targetUserId) {
-  const role = roleOf(user)
-  if (role === ROLE.STUDENT) return Number(targetUserId) === Number(user.id)
-  return role === ROLE.ADMIN
 }
 
 /** Course ids the viewer may read student records for. `null` means "all". */

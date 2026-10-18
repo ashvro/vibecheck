@@ -1,15 +1,16 @@
 """
 VibeCheck dropout-risk model — training & export.
 
-Faithful reproduction of ml_analysis_full.py (Documents/ML), plus a JSON
-export so the Express backend can run inference with zero Python at runtime.
+A JSON export so the Express backend can run inference with zero Python at
+runtime. The label-generation stage is deterministic:
 
-The label-generation stage is byte-for-byte the original:
-    risk_score = (100 - attendance)/100 * 0.35
-               + (1 - sentiment) * 0.25
-               + (10 - cgpa)/10 * 0.40
+    risk_score = (100 - attendance)/100 * 0.4667
+               + (10 - cgpa)/10 * 0.5333
     risk_score += N(0, 0.05)                  # irreducible label noise
     Low  <= q33 | Medium <= q66 | High        # quantile buckets
+
+The weights are the original attendance/marks ratio (0.35 / 0.40) renormalised
+to sum to 1 now that the well-being sentiment term is gone.
 
 Re-run with:  python3 train_model.py
 Output:       model.json  (+ reference_predictions.json for the JS port test)
@@ -29,10 +30,10 @@ from sklearn.metrics import accuracy_score
 SEED = 42
 TEST_SIZE = 0.25
 
-LABEL_WEIGHTS = {"attendance": 0.35, "sentiment": 0.25, "marks": 0.40}
+LABEL_WEIGHTS = {"attendance": 0.4667, "marks": 0.5333}
 Q_LOW, Q_MEDIUM = 0.33, 0.66
 
-FEATURES = ["sentimentscore", "attendance_percent", "marks_cgpa"]
+FEATURES = ["attendance_percent", "marks_cgpa"]
 CLASS_ORDER = ["Low", "Medium", "High"]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,10 +42,9 @@ INPUT = os.environ.get("ML_INPUT_CSV", DEFAULT_INPUT)
 
 
 def build_labels(df):
-    """Original label stage. Returns (labels, noisy_risk_score, q1, q2)."""
+    """Label stage. Returns (labels, noisy_risk_score, q1, q2)."""
     risk = (
         (100 - df["attendance_percent"]) / 100 * LABEL_WEIGHTS["attendance"]
-        + (1 - df["sentimentscore"]) * LABEL_WEIGHTS["sentiment"]
         + (10 - df["marks_cgpa"]) / 10 * LABEL_WEIGHTS["marks"]
     )
     # Same seed, same draw order as the original script.
@@ -92,8 +92,8 @@ def main():
     X_train_s = pd.DataFrame(X_train_s, columns=X.columns)
     X_test_s = pd.DataFrame(X_test_s, columns=X.columns)
 
-    # Primary model: ties for best accuracy in the original study (86.84%).
-    # Chosen for portability — a linear model maps exactly onto JS arithmetic.
+    # Primary model: a linear model maps exactly onto JS arithmetic, so the
+    # Express runtime needs no ML dependency.
     clf = LogisticRegression(max_iter=1000)
     clf.fit(X_train_s, y_train)
 
@@ -119,7 +119,7 @@ def main():
     artifact = {
         "version": "1.0.0",
         "trainedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source": "ml_analysis_full.py (Documents/ML)",
+        "source": "train_model.py (attendance + marks)",
         "seed": SEED,
         "testSize": TEST_SIZE,
         "features": FEATURES,
@@ -151,14 +151,13 @@ def main():
         "rows": [
             {
                 "username": str(u),
-                "sentimentscore": float(s),
                 "attendance_percent": float(a),
                 "marks_cgpa": float(c),
                 "expected": str(p),
                 "expectedScore": round(float(noisy_risk.iloc[i]) * 100, 4),
             }
-            for i, (u, s, a, c, p) in enumerate(
-                zip(df["username"], X["sentimentscore"], X["attendance_percent"], X["marks_cgpa"], preds)
+            for i, (u, a, c, p) in enumerate(
+                zip(df["username"], X["attendance_percent"], X["marks_cgpa"], preds)
             )
         ],
     }

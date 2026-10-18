@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  AtSign,
   ArrowLeft,
   ArrowRight,
   GraduationCap,
@@ -8,12 +9,16 @@ import {
   Loader2,
   Mail,
   ShieldCheck,
+  Sparkles,
   UserRound,
   type LucideIcon,
 } from 'lucide-react'
 import { CrystalMark } from '../components/CrystalMark'
 
 type Role = 'student' | 'teacher' | 'admin'
+
+const VIBE_TAG_RE = /^[A-Za-z0-9_]{3,20}$/
+type TagStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
 
 const roles: {
   value: Role
@@ -51,12 +56,45 @@ export function LoginPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [vibeTag, setVibeTag] = useState('')
+  const [tagStatus, setTagStatus] = useState<TagStatus>('idle')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const isSignin = mode === 'signin'
   const activeRole = roles.find((r) => r.value === role)
+  const tagTrimmed = vibeTag.trim()
+  // Valid format and not known-taken. If the availability ping fails we still let
+  // the attempt through — the server is the final authority and answers with 409.
+  const tagOk = VIBE_TAG_RE.test(tagTrimmed) && tagStatus !== 'taken' && tagStatus !== 'checking'
+
+  // Live availability of the tag the user is typing.
+  useEffect(() => {
+    if (isSignin) return
+    if (!tagTrimmed) {
+      setTagStatus('idle')
+      return
+    }
+    if (!VIBE_TAG_RE.test(tagTrimmed)) {
+      setTagStatus('invalid')
+      return
+    }
+    setTagStatus('checking')
+    const timer = setTimeout(() => {
+      fetch(`/api/auth/vibetag/check?tag=${encodeURIComponent(tagTrimmed)}`)
+        .then((r) => r.json())
+        .then((d: { available?: boolean }) => setTagStatus(d.available ? 'available' : 'taken'))
+        .catch(() => setTagStatus('idle'))
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [tagTrimmed, isSignin])
+
+  function suggestVibeTag() {
+    const tag = 'vibe' + String(Math.floor(100000 + Math.random() * 900000))
+    setVibeTag(tag)
+    setError('')
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -71,7 +109,7 @@ export function LoginPage() {
           body: JSON.stringify(
             isSignin
               ? { email: email.trim(), password }
-              : { name: name.trim(), email: email.trim(), password, role },
+              : { name: name.trim(), email: email.trim(), password, role, vibeTag: tagTrimmed },
           ),
         },
       )
@@ -201,6 +239,56 @@ export function LoginPage() {
                     </div>
                   )}
 
+                  {!isSignin && (
+                    <div>
+                      <div className="flex items-end justify-between gap-3">
+                        <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+                          Your VibeTag
+                        </label>
+                        <button
+                          type="button"
+                          onClick={suggestVibeTag}
+                          className="inline-flex items-center gap-1 font-mono text-[9px] tracking-[0.14em] text-violet-soft uppercase transition hover:text-ice"
+                        >
+                          <Sparkles className="h-3 w-3" /> Generate
+                        </button>
+                      </div>
+                      <div className="relative mt-1.5">
+                        <AtSign className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ice/40" />
+                        <input
+                          type="text"
+                          value={vibeTag}
+                          onChange={(e) => setVibeTag(e.target.value)}
+                          placeholder="e.g. pixel_ronin"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          className="w-full rounded-lg border border-ice/10 bg-thaw py-2.5 pr-3 pl-9 font-mono text-sm tracking-wide text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
+                        />
+                      </div>
+                      <p
+                        className={
+                          'mt-1.5 text-[11px] ' +
+                          (tagStatus === 'available'
+                            ? 'text-emerald-soft'
+                            : tagStatus === 'taken' || tagStatus === 'invalid'
+                              ? 'text-rose-400'
+                              : 'text-muted')
+                        }
+                      >
+                        {tagStatus === 'idle' && !tagTrimmed
+                          ? 'Your name in Community instead of “Anonymous” — 3–20 characters.'
+                          : tagStatus === 'checking'
+                            ? 'Checking availability…'
+                            : tagStatus === 'available'
+                              ? '✓ Available — it’s yours.'
+                              : tagStatus === 'taken'
+                                ? 'That VibeTag is already taken. Try another.'
+                                : 'Use 3–20 characters: letters, numbers, or underscores.'}
+                      </p>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
                       Email (Gmail)
@@ -242,7 +330,10 @@ export function LoginPage() {
                   <button
                     type="submit"
                     disabled={
-                      loading || !email.trim() || !password.trim() || (!isSignin && !name.trim())
+                      loading ||
+                      !email.trim() ||
+                      !password.trim() ||
+                      (!isSignin && (!name.trim() || !tagOk))
                     }
                     className="glow-cta flex w-full items-center justify-center gap-2 rounded-lg bg-ice py-2.5 text-sm font-semibold text-thaw transition hover:bg-ice-bright disabled:cursor-not-allowed disabled:bg-line disabled:text-muted"
                   >

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import clsx from 'clsx'
-import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2, ChevronDown, BookOpen } from 'lucide-react'
+import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2, ChevronDown } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
 import VoiceOrb from '../../components/VoiceOrb'
 import { api } from '../../lib/api'
@@ -12,6 +12,12 @@ import {
   isVoiceActive,
   type VoicePhase,
 } from '../../lib/voice'
+import {
+  getSelectedVoiceId,
+  setSelectedVoiceId,
+  listTtsVoices,
+  getTtsStatus,
+} from '../../lib/tts'
 
 type SourceRef = {
   title?: string | null
@@ -23,8 +29,6 @@ type SourceRef = {
 type ChatMeta = {
   intent?: string | null
   riskLevel?: string | null
-  sentimentScore?: number | null
-  emotion?: string | null
   sources?: SourceRef[]
 }
 
@@ -39,20 +43,12 @@ type ChatSession = {
   id: number
   title: string
   intent?: string | null
-  sentimentScore?: number | null
   updatedAt: string
   messageCount: number
   preview?: string | null
 }
 
 const BARS = [40, 65, 100, 55]
-
-const riskStyles: Record<string, string> = {
-  low: 'text-emerald-soft bg-emerald-soft/15 border-emerald-soft/25',
-  moderate: 'text-amber-gentle bg-amber-gentle/15 border-amber-gentle/25',
-  high: 'text-rose-400 bg-rose-500/15 border-rose-400/30',
-  critical: 'text-rose-400 bg-rose-500/20 border-rose-400/40',
-}
 
 function riskDot(risk?: string | null) {
   if (risk === 'high' || risk === 'critical') return 'bg-rose-400'
@@ -80,7 +76,7 @@ function MoodBars({ className }: { className?: string }) {
 
 function MetaChips({ meta }: { meta?: ChatMeta }) {
   if (!meta) return null
-  if (!meta.intent && !meta.riskLevel) return null
+  if (!meta.intent) return null
 
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -89,85 +85,6 @@ function MetaChips({ meta }: { meta?: ChatMeta }) {
           {meta.intent}
         </span>
       )}
-      {meta.riskLevel && (
-        <span
-          className={clsx(
-            'rounded border px-1.5 py-0.5 font-mono text-[9px] tracking-wider uppercase',
-            riskStyles[meta.riskLevel] ?? 'border-ice/10 text-ice/50',
-          )}
-        >
-          {meta.riskLevel} risk
-        </span>
-      )}
-    </div>
-  )
-}
-
-/** Same thresholds the well-being accents use everywhere: green/amber/rose. */
-function sentimentTone(score: number) {
-  return score >= 0.6 ? 'bg-emerald-soft' : score >= 0.4 ? 'bg-amber-gentle' : 'bg-rose-400'
-}
-
-function SentimentIndicator({ score, emotion }: { score: number; emotion?: string | null }) {
-  const pct = Math.round(score * 100)
-  return (
-    <div className="mt-1.5 flex items-center gap-2" title={`Well-being signal ${pct}%`}>
-      <div className="h-1 w-14 overflow-hidden rounded-full bg-ice/10">
-        <div className={clsx('h-full rounded-full', sentimentTone(score))} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="font-mono text-[9px] tracking-wider text-ice/40 uppercase">
-        {emotion ?? 'well-being'} · {pct}%
-      </span>
-    </div>
-  )
-}
-
-/**
- * The running average of the session's well-being turns, shown under each
- * reply. This is the number the assistant rows and the analytics well-being
- * card report, so a student can watch it settle as the conversation goes.
- */
-function SessionAvgIndicator({ pct, turns }: { pct: number; turns: number }) {
-  return (
-    <div
-      className="mt-1.5 flex items-center gap-2"
-      title={`Average across ${turns} well-being ${turns === 1 ? 'turn' : 'turns'} in this session`}
-    >
-      <div className="h-1 w-14 overflow-hidden rounded-full bg-ice/10">
-        <div
-          className={clsx('h-full rounded-full', sentimentTone(pct / 100))}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="font-mono text-[9px] tracking-wider text-ice/40 uppercase">
-        session avg · {pct}%
-      </span>
-    </div>
-  )
-}
-
-/**
- * Cites the textbook(s) an academic answer was grounded in. Academic replies
- * only — mental-health and general answers are not document-grounded, so they
- * show nothing rather than an empty or misleading badge.
- */
-function SourceCitation({ sources }: { sources?: SourceRef[] }) {
-  if (!sources || !sources.length) return null
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      <span className="inline-flex items-center gap-1 rounded border border-violet-soft/25 bg-violet-soft/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-violet-soft uppercase">
-        <BookOpen className="h-2.5 w-2.5" />
-        From your textbook
-      </span>
-      {sources.map((s) => (
-        <span
-          key={s.source}
-          title={s.source}
-          className="rounded border border-ice/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-ice/50"
-        >
-          {s.label}
-        </span>
-      ))}
     </div>
   )
 }
@@ -180,8 +97,6 @@ type BackendMessage = {
   content: string
   intent?: string | null
   riskLevel?: string | null
-  label?: string | null
-  score?: number | null
   sources?: string | null
 }
 
@@ -199,8 +114,6 @@ function mapBackend(m: BackendMessage): Message {
   const meta: ChatMeta = {
     intent: m.intent ?? null,
     riskLevel: m.riskLevel ?? null,
-    emotion: m.label ?? null,
-    sentimentScore: m.score ?? null,
     sources: parseSources(m.sources),
   }
   return {
@@ -233,6 +146,8 @@ export function AIAssistantPage() {
   const [sending, setSending] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceChoices, setVoiceChoices] = useState<Array<{ id: string; name: string }>>([])
+  const [voiceId, setVoiceId] = useState<string | null>(getSelectedVoiceId())
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null)
   /** True while the transcript is parked at the newest message. */
   const [atBottom, setAtBottom] = useState(true)
@@ -256,6 +171,37 @@ export function AIAssistantPage() {
       void stopVoice()
     }
   }, [])
+
+  // Load the selectable TTS voices once we know a neural provider is wired up.
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const status = await getTtsStatus()
+        if (!status.provider || !alive) return
+        const voices = await listTtsVoices()
+        if (!alive) return
+        const mapped = voices
+          .filter((v) => v.id)
+          .map((v) => ({ id: v.id as string, name: v.name || v.id }))
+        setVoiceChoices(mapped)
+        const current = getSelectedVoiceId()
+        if (!current && status.defaultVoiceId && mapped.some((v) => v.id === status.defaultVoiceId)) {
+          setVoiceId(status.defaultVoiceId)
+        }
+      } catch {
+        /* voices are optional */
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  function changeVoice(next: string | null) {
+    setVoiceId(next)
+    setSelectedVoiceId(next)
+  }
 
   const voiceActive = voicePhase !== 'idle'
 
@@ -310,23 +256,6 @@ export function AIAssistantPage() {
 
   const lastMsg = messages[messages.length - 1]
   const lastText = lastMsg?.text ?? ''
-
-  // Running session average, one entry per message: the plain mean of the
-  // well-being turns seen so far. Mirrors recomputeSessionSentiment on the
-  // server, so the final value equals the session score sent to analytics.
-  const sessionAvg = useMemo(() => {
-    const out: ({ pct: number; turns: number } | null)[] = []
-    let sum = 0
-    let turns = 0
-    for (const m of messages) {
-      if (m.role === 'user' && m.meta?.sentimentScore != null) {
-        sum += m.meta.sentimentScore
-        turns += 1
-      }
-      out.push(turns ? { pct: Math.round((sum / turns) * 100), turns } : null)
-    }
-    return out
-  }, [messages])
 
   const scrollToBottom = (smooth: boolean) => {
     const el = scrollerRef.current
@@ -657,19 +586,6 @@ export function AIAssistantPage() {
                       {s.preview && (
                         <span className="mt-0.5 block truncate text-[10px] text-ice/40">{s.preview}</span>
                       )}
-                      {s.sentimentScore != null && (
-                        <span className="mt-1 flex items-center gap-1.5">
-                          <span className="h-1 w-12 shrink-0 overflow-hidden rounded-full bg-ice/10">
-                            <span
-                              className={clsx('block h-full rounded-full', sentimentTone(s.sentimentScore))}
-                              style={{ width: `${Math.round(s.sentimentScore * 100)}%` }}
-                            />
-                          </span>
-                          <span className="font-mono text-[9px] tracking-wider text-ice/40">
-                            well-being {Math.round(s.sentimentScore * 100)}%
-                          </span>
-                        </span>
-                      )}
                     </span>
                   </button>
                   <button
@@ -727,7 +643,7 @@ export function AIAssistantPage() {
                 {!loading && loadingMessages && messages.length === 0 && (
                   <p className="py-8 text-center text-sm text-ice/40">Loading messages…</p>
                 )}
-                {!loading && !loadingMessages && messages.map((msg, i) => (
+                {!loading && !loadingMessages && messages.map((msg) => (
                   <div
                     key={msg.id}
                     className={clsx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
@@ -743,10 +659,6 @@ export function AIAssistantPage() {
                               ))
                             : msg.text}
                         </div>
-                        <SourceCitation sources={msg.meta?.sources} />
-                        {sessionAvg[i] && (
-                          <SessionAvgIndicator pct={sessionAvg[i]!.pct} turns={sessionAvg[i]!.turns} />
-                        )}
                       </div>
                     ) : (
                       <div className="flex max-w-[90%] items-start gap-2.5">
@@ -755,9 +667,6 @@ export function AIAssistantPage() {
                             {msg.text}
                           </div>
                           <MetaChips meta={msg.meta} />
-                          {msg.meta?.sentimentScore != null && (
-                            <SentimentIndicator score={msg.meta.sentimentScore} emotion={msg.meta.emotion} />
-                          )}
                         </div>
                         <MoodBars className="mt-1 h-8" />
                       </div>
@@ -792,6 +701,23 @@ export function AIAssistantPage() {
             )}
 
             <div className="border-t border-ice/10 p-3 sm:p-4">
+              {voiceChoices.length > 0 && (
+                <div className="mb-2 flex items-center gap-2">
+                  <Volume2 className="h-3.5 w-3.5 shrink-0 text-ice/45" />
+                  <select
+                    value={voiceId ?? ''}
+                    onChange={(e) => changeVoice(e.target.value || null)}
+                    aria-label="Assistant voice"
+                    className="max-w-[220px] flex-1 truncate rounded-md border border-ice/15 bg-thaw px-2 py-1 text-[11px] text-ice/70 outline-none transition hover:border-ice/30 focus:border-ice/40"
+                  >
+                    {voiceChoices.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {voiceError && (
                 <div className="mb-2 flex items-center gap-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-1.5">
                   <span className="truncate text-[10px] text-rose-400/90">{voiceError}</span>

@@ -4,6 +4,26 @@ import { getIO } from '../socket.js'
 
 export const communityRoutes = Router()
 
+// A VibeTag is this app's identity: every post and comment is attributed to it.
+function hasValidVibeTag(user) {
+  if (!user) return false
+  return typeof user.vibeTag === 'string' && user.vibeTag.trim().length > 0
+}
+
+function requireVibeTag(req, res) {
+  if (!req.user) {
+    res.status(401).json({ error: 'Login required to post to the community.' })
+    return false
+  }
+  if (!hasValidVibeTag(req.user)) {
+    res
+      .status(400)
+      .json({ error: 'Create your VibeTag in Profile before posting to the community.' })
+    return false
+  }
+  return true
+}
+
 communityRoutes.get('/stats', async (req, res, next) => {
   try {
     const [members, posts, replies] = await Promise.all([
@@ -69,27 +89,23 @@ communityRoutes.get('/:id', async (req, res, next) => {
 
 communityRoutes.post('/', async (req, res, next) => {
   try {
-    const { title, body, category, anonymous } = req.body || {}
-
+    const { title, body, category } = req.body || {}
     if (!title || !body || !category) {
       return res.status(400).json({ error: 'title, body, and category are required.' })
     }
-
-    const isAnonymous = anonymous !== false
-    const authorName = isAnonymous ? 'Anonymous' : req.user?.name || 'Student'
+    if (!requireVibeTag(req, res)) return
 
     const post = await prisma.post.create({
       data: {
         title,
         body,
         category,
-        authorId: isAnonymous ? null : req.user?.id ?? null,
-        authorName,
-        anonymous: isAnonymous,
-        ownerId: req.user?.id ?? null,
+        authorId: req.user.id,
+        authorName: req.user.vibeTag.trim(),
+        anonymous: false,
+        ownerId: req.user.id,
       },
     })
-
     const { ownerId: _ownerId, ...safe } = post
     const payload = { ...safe, comments: 0, commentList: [], voted: false, deletable: true }
     getIO().to('live').emit('post:new', { ...payload, deletable: false, voted: false })
@@ -102,20 +118,16 @@ communityRoutes.post('/', async (req, res, next) => {
 communityRoutes.delete('/:id', async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Login required to delete a post.' })
-
     const id = Number(req.params.id)
     const found = await prisma.post.findUnique({ where: { id } })
     if (!found) return res.status(404).json({ error: 'Post not found.' })
-
     const isAdmin = req.user.role === 'admin'
-    const isOwner = found.ownerId === req.user.id
-    if (!isAdmin && !isOwner) {
-      return res.status(403).json({ error: 'You can only delete your own posts.' })
+    if (found.ownerId !== req.user.id && !isAdmin) {
+      return res.status(403).json({ error: 'Not authorized to delete this post.' })
     }
-
     await prisma.post.delete({ where: { id } })
     getIO().to('live').emit('post:deleted', { id })
-    res.json({ deleted: true })
+    res.status(204).end()
   } catch (err) {
     next(err)
   }
@@ -126,34 +138,20 @@ communityRoutes.post('/:id/upvote', async (req, res, next) => {
     const id = Number(req.params.id)
     const found = await prisma.post.findUnique({ where: { id } })
     if (!found) return res.status(404).json({ error: 'Post not found.' })
-
     if (!req.user) {
-      const post = await prisma.post.update({
-        where: { id },
-        data: { upvotes: { increment: 1 } },
-      })
+      const post = await prisma.post.update({ where: { id }, data: { upvotes: { increment: 1 } } })
+      getIO().to('live').emit('post:voted', { id, upvotes: post.upvotes })
       return res.json(post)
     }
-
-    const existing = await prisma.postVote.findUnique({
-      where: { postId_userId: { postId: id, userId: req.user.id } },
-    })
-
+    const existing = await prisma.postVote.findFirst({ where: { postId: id, userId: req.user.id } })
     if (existing) {
       await prisma.postVote.delete({ where: { id: existing.id } })
-      const post = await prisma.post.update({
-        where: { id },
-        data: { upvotes: { decrement: 1 } },
-      })
-      getIO().to('live').emit('post:voted', { id, upvotes: post.upvotes })
+      const post = await prisma.post.update({ where: { id }, data: { upvotes: { decrement: 1 } } })
+      getIO().to('live').emit('post:voted', { id, upvotes: post.upvotes, unvoted: true })
       return res.json({ ...post, voted: false })
     }
-
     await prisma.postVote.create({ data: { postId: id, userId: req.user.id } })
-    const post = await prisma.post.update({
-      where: { id },
-      data: { upvotes: { increment: 1 } },
-    })
+    const post = await prisma.post.update({ where: { id }, data: { upvotes: { increment: 1 } } })
     getIO().to('live').emit('post:voted', { id, upvotes: post.upvotes })
     res.json({ ...post, voted: true })
   } catch (err) {
@@ -166,14 +164,13 @@ communityRoutes.post('/:id/comments', async (req, res, next) => {
     const postId = Number(req.params.id)
     const found = await prisma.post.findUnique({ where: { id: postId } })
     if (!found) return res.status(404).json({ error: 'Post not found.' })
-
     const { body } = req.body || {}
     if (!body) return res.status(400).json({ error: 'A comment body is required.' })
+    if (!requireVibeTag(req, res)) return
 
     const comment = await prisma.comment.create({
-      data: { postId, body, authorId: req.user?.id ?? null, authorName: req.user?.name || 'Anonymous' },
+      data: { postId, body, authorId: req.user.id, authorName: req.user.vibeTag.trim() },
     })
-
     getIO().to('live').emit('comment:new', { postId, comment })
     res.status(201).json(comment)
   } catch (err) {

@@ -10,8 +10,6 @@ export type StreamSource = {
 export type StreamMeta = {
   intent?: string | null
   riskLevel?: string | null
-  sentimentScore?: number | null
-  emotion?: string | null
   sources?: StreamSource[]
 }
 

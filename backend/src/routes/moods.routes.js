@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../prisma.js'
 import { moodOptions } from '../data/store.js'
-import { analyzeSentiment } from '../utils/sentiment.js'
 
 export const moodRoutes = Router()
 
@@ -34,22 +33,18 @@ moodRoutes.post('/', async (req, res, next) => {
     }
 
     const info = moodOptions.find((o) => o.id === mood)
-    const sentiment = analyzeSentiment(text || '')
 
     const checkIn = await prisma.checkIn.create({
       data: {
         userId: req.user?.id ?? null,
         mood,
         text: text || '',
-        label: sentiment.label,
-        score: sentiment.score,
       },
     })
 
     res.status(201).json({
       ...checkIn,
       moodLabel: info ? info.label : mood,
-      sentiment,
     })
   } catch (err) {
     next(err)

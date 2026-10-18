@@ -20,6 +20,7 @@ export async function optionalAuth(req, _res, next) {
             major: user.major,
             year: user.year,
             avatar: user.avatar,
+            vibeTag: user.vibeTag,
             createdAt: user.createdAt,
           }
         }

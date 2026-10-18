@@ -17,7 +17,7 @@ const features = [
   {
     n: '02',
     title: 'Peer space, low pressure',
-    description: 'Anonymous-friendly forums that feel safe at 1am.',
+    description: 'VibeTag forums that feel safe at 1am.',
     kind: 'people' as const,
     span: 'md:col-span-2',
   },
@@ -39,7 +39,7 @@ const features = [
     n: '05',
     title: 'Catch risk early',
     description:
-      'Sentiment, attendance, and grades → clear interventions — not opaque scary scores.',
+      'Attendance and grades → clear interventions — not opaque scary scores.',
     kind: 'risk' as const,
     span: 'md:col-span-6',
   },
@@ -336,12 +336,9 @@ function RiskMock({ active }: { active: boolean }) {
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3.5 py-2">
         <span className="chip hero-chip" style={{ animationDelay: '0ms' }}>
-          sentiment · dip
-        </span>
-        <span className="chip hero-chip" style={{ animationDelay: '110ms' }}>
           attendance ↓ 2×
         </span>
-        <span className="chip hero-chip" style={{ animationDelay: '220ms' }}>
+        <span className="chip hero-chip" style={{ animationDelay: '110ms' }}>
           grades · watch
         </span>
       </div>

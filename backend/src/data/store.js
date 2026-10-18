@@ -6,7 +6,6 @@ export const moodOptions = [
 ]
 
 export const factorWeights = [
-  { name: 'Grades', value: 40 },
-  { name: 'Attendance', value: 35 },
-  { name: 'Well-being Sentiment', value: 25 },
+  { name: 'Grades', value: 53 },
+  { name: 'Attendance', value: 47 },
 ]

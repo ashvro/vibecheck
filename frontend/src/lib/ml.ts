@@ -28,7 +28,7 @@ export type MlModelInfo = {
   primaryModel: string
   accuracyTest: number
   accuracyFull: number
-  labelWeights: { attendance: number; sentiment: number; marks: number }
+  labelWeights: { attendance: number; marks: number }
   thresholds: { quantiles: number[]; q1: number; q2: number }
   classOrder: MlRisk[]
   classes: string[]
@@ -59,7 +59,7 @@ export const mlApi = {
    * analyticsApi.insights(), which scopes them by role.
    */
   summary: () => api.get<MlSummary>('/api/analytics/ml/summary'),
-  predict: (input: { sentiment?: number; attendance?: number; cgpa?: number }) =>
+  predict: (input: { attendance?: number; cgpa?: number }) =>
     api.post<MlPrediction>('/api/analytics/ml/predict', input),
 }
 

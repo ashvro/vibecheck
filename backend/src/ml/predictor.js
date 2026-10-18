@@ -49,7 +49,7 @@ function softmax(z) {
  *
  * `null`/`undefined`/`''` must be treated as missing: `Number(null)` is 0,
  * so a plain `Number.isFinite` check would silently score a brand-new student
- * as if they had 0% attendance, 0 CGPA and the worst possible sentiment.
+ * as if they had 0% attendance and 0 CGPA.
  */
 function coerce(value, fallback, { min, max }) {
   if (value === null || value === undefined || value === '') {
@@ -64,7 +64,6 @@ function coerce(value, fallback, { min, max }) {
  * Score one student.
  *
  * @param {object} input
- * @param {number|null} [input.sentiment]  0–1 well-being sentiment
  * @param {number|null} [input.attendance] 0–100 attendance percent
  * @param {number|null} [input.cgpa]       0–10 CGPA (pass marks / 10)
  * @returns {object} prediction payload
@@ -73,13 +72,12 @@ export function predictRisk(input = {}) {
   const model = load()
   const pm = model.primaryModel
   const { mean, scale } = pm.scaler
-  const [fSent, fAtt, fCgpa] = pm.featureOrder
+  const [fAtt, fCgpa] = pm.featureOrder
 
-  const sent = coerce(input.sentiment, mean[0], { min: 0, max: 1 })
-  const att = coerce(input.attendance, mean[1], { min: 0, max: 100 })
-  const cgpa = coerce(input.cgpa, mean[2], { min: 0, max: 10 })
+  const att = coerce(input.attendance, mean[0], { min: 0, max: 100 })
+  const cgpa = coerce(input.cgpa, mean[1], { min: 0, max: 10 })
 
-  const raw = [sent.value, att.value, cgpa.value]
+  const raw = [att.value, cgpa.value]
   const scaled = raw.map((v, i) => (v - mean[i]) / scale[i])
 
   const z = pm.coef.map((row, k) => row.reduce((s, c, i) => s + c * scaled[i], pm.intercept[k]))
@@ -92,21 +90,17 @@ export function predictRisk(input = {}) {
   // Label-stage formula, no noise — the interpretable 0–100 risk score.
   const w = model.labelWeights
   const scorePct =
-    (((100 - att.value) / 100) * w.attendance +
-      (1 - sent.value) * w.sentiment +
-      ((10 - cgpa.value) / 10) * w.marks) *
-    100
+    (((100 - att.value) / 100) * w.attendance + ((10 - cgpa.value) / 10) * w.marks) * 100
 
   // Per-feature linear contribution, for the "why" breakdown in the UI.
   const contributions = pm.featureOrder.map((feature, i) => {
     const delta = raw[i] - mean[i]
-    const label =
-      feature === fSent ? 'Well-being sentiment' : feature === fAtt ? 'Attendance' : 'Marks (CGPA)'
+    const label = feature === fAtt ? 'Attendance' : 'Marks (CGPA)'
     return {
       feature,
       label,
       value: Math.round(raw[i] * 100) / 100,
-      imputed: [sent, att, cgpa][i].imputed,
+      imputed: [att, cgpa][i].imputed,
       contribution: Math.round(pm.coef[best][i] * delta * 1000) / 1000,
     }
   })

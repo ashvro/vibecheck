@@ -8,7 +8,7 @@ const steps = [
   {
     n: '01',
     title: 'Check in',
-    body: 'A quick mood pulse or a free-form message — no forms, no judgment.',
+    body: 'A message in your own words — no forms, no judgment.',
     tie: 'talk it out',
     kind: 'pulse' as const,
   },
@@ -32,14 +32,14 @@ const STEP_NODE_LEFT = ['16.5%', '50%', '83.5%']
 
 const studentBenefits = [
   { title: 'Always-on companion', body: 'Mental health and academic questions whenever you need them.' },
-  { title: 'Anonymous when you want', body: 'Peer community that lowers the bar on asking for help.' },
+  { title: 'Your VibeTag, your space', body: 'Peer community that lowers the bar on asking for help.' },
   { title: 'Real campus connection', body: 'Clubs and friend matches that fight the lonely lecture-hall vibe.' },
   { title: 'Clarity on academics', body: 'Attendance, grades, and upcoming assessments in one place.' },
-  { title: 'Mood that matters', body: 'Daily check-ins that quietly feed better support.' },
+  { title: 'Support that adapts', body: 'Your context quietly feeds better, more personal support.' },
 ]
 
 const educatorBenefits = [
-  { title: 'Early warning, not panic', body: 'Risk matrix from sentiment, attendance, and grades.' },
+  { title: 'Early warning, not panic', body: 'Risk matrix from attendance and grades.' },
   { title: 'Faculty tools that stick', body: 'Marks and attendance entry without five portals.' },
   { title: 'Prioritized interventions', body: 'Recommendations ordered by urgency.' },
   { title: 'Privacy-aware trends', body: 'Campus wellness signals without voyeuristic dashboards.' },
@@ -67,7 +67,7 @@ function StepPulse() {
         </div>
       </div>
       <div className="mt-2 flex items-center gap-1.5 font-mono text-[8px] text-ice/40">
-        <span className="h-1 w-1 rounded-full bg-emerald-soft" /> mood · stored
+        <span className="h-1 w-1 rounded-full bg-emerald-soft" /> message · heard
       </div>
     </div>
   )

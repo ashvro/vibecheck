@@ -22,13 +22,13 @@ async function main() {
   const course = await prisma.course.create({ data: { code: 'SMOKE101', name: 'Context Test Course', credits: 4 } })
   await prisma.enrollment.create({ data: { userId: user.id, courseId: course.id, ia1: 82, ia2: 91, attendance: 96 } })
   await prisma.checkIn.createMany({ data: [
-    { userId: user.id, mood: 'anxious', text: 'stressed about tests', label: 'anxiety', score: 0.34 },
-    { userId: user.id, mood: 'okay', text: 'decent day', label: 'neutral', score: 0.55 },
+    { userId: user.id, mood: 'anxious', text: 'stressed about tests' },
+    { userId: user.id, mood: 'okay', text: 'decent day' },
   ]})
   const club = await prisma.club.create({ data: { name: 'Smoke Coding Club', description: 'x', members: 1 } })
   await prisma.clubMember.create({ data: { clubId: club.id, userId: user.id, role: 'lead' } })
   await prisma.post.create({ data: { authorId: user.id, authorName: 'Smoke Tester', category: 'study', title: 'Preparing for SMOKE101 finals', body: 'help?', upvotes: 3 } })
-  await prisma.chatSession.create({ data: { userId: user.id, title: 'MH smoke', sentimentScore: 0.42 } })
+  await prisma.chatSession.create({ data: { userId: user.id, title: 'MH smoke' } })
 
   const ctx = await buildUserContext(user.id)
   console.log('--- buildUserContext output ---')

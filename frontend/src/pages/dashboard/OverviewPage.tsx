@@ -22,15 +22,12 @@ type StatCard = {
 }
 
 type Summary = {
-  checkIns: number
-  checkInsThisWeek: number
   messages: number
   posts: number
   clubs: number
   enrollments: number
   avgAttendance: number | null
   cgpa: number | null
-  latestMood: string | null
 }
 
 type Todo = {
@@ -60,9 +57,9 @@ function mlPosition(risk: MlRisk): number {
 
 /**
  * Risk is now driven by the ML model rather than attendance alone, but the
- * card stays empty until the model has all three real features — attendance,
- * CGPA and well-being sentiment. A new user with no interaction has none of
- * them, so the initial state is a plain "Low" with no score.
+ * card stays empty until the model has both real features — attendance and
+ * CGPA. A new user with no interaction has neither, so the initial state is a
+ * plain "Low" with no score.
  */
 function riskKind(ml: MlSummary | null): { label: string; position: number; score: number | null } {
   const latest = ml?.latest ?? null
@@ -171,9 +168,9 @@ export function OverviewPage() {
 
   const statCards: StatCard[] = [
     {
-      label: 'Check-ins',
-      value: String(summary?.checkInsThisWeek ?? 0),
-      unit: 'this week',
+      label: 'Community posts',
+      value: String(summary?.posts ?? 0),
+      unit: 'shared',
       icon: MessageSquareText,
     },
     {

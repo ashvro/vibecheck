@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
-import { ArrowBigUp, Clock, Eye, MessageCircle, Send, Share2, Tag, Trash2 } from 'lucide-react'
+import { ArrowBigUp, AtSign, Clock, MessageCircle, Send, Share2, Tag, Trash2 } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
-import { api } from '../../lib/api'
+import { api, getUser } from '../../lib/api'
 import { connectSocket } from '../../lib/socket'
 
 const categories = ['All', 'Mental Health', 'Study Tips', 'Campus Life', 'Career']
@@ -54,7 +55,6 @@ export function CommunityPage() {
   const [category, setCategory] = useState('All')
   const [composer, setComposer] = useState({ title: '', body: '' })
   const [composerCategory, setComposerCategory] = useState('Campus Life')
-  const [composerAnonymous, setComposerAnonymous] = useState(true)
   const [posts, setPosts] = useState<Post[]>([])
   const [stats, setStats] = useState<{ members: number; posts: number; replies: number } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -64,6 +64,18 @@ export function CommunityPage() {
   const [commentLists, setCommentLists] = useState<Record<number, Comment[]>>({})
   const [sendingComment, setSendingComment] = useState<number | null>(null)
   const seenComments = useRef<Set<number>>(new Set())
+  const [vibeTag, setVibeTag] = useState<string>('')
+  const storedUser = getUser()
+  const hasVibeTag = Boolean(vibeTag)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    api
+      .get<{ vibeTag?: string | null }>('/api/auth/me')
+      .then((m) => setVibeTag((m.vibeTag || '').trim()))
+      .catch(() => setVibeTag((storedUser?.vibeTag as string) || ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     api
@@ -161,12 +173,15 @@ export function CommunityPage() {
   async function createPost() {
     if (!composer.title.trim() || !composer.body.trim()) return
     setError('')
+    if (!hasVibeTag) {
+      setError('Create your VibeTag in Profile before posting to the community.')
+      return
+    }
     try {
       const created = await api.post<Post>('/api/community', {
         title: composer.title.trim(),
         body: composer.body.trim(),
         category: composerCategory,
-        anonymous: composerAnonymous,
       })
       setPosts((prev) =>
         prev.some((p) => p.id === created.id)
@@ -199,8 +214,14 @@ export function CommunityPage() {
           post.id === postId ? { ...post, comments: (post.comments ?? 0) + 1 } : post,
         ),
       )
-    } catch {
-      /* drop on failure */
+      setError('')
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Unable to comment. Please try again.'
+      setError(
+        message.includes('VibeTag')
+          ? 'Create your VibeTag in Profile before commenting.'
+          : message,
+      )
     } finally {
       setSendingComment(null)
     }
@@ -300,23 +321,37 @@ export function CommunityPage() {
                     </button>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setComposerAnonymous((v) => !v)}
+                <span
                   className={clsx(
-                    'relative h-5 w-9 rounded-full transition-colors',
-                    composerAnonymous ? 'bg-violet/40' : 'bg-line',
+                    'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[9px] tracking-[0.12em] uppercase',
+                    hasVibeTag
+                      ? 'border-emerald-soft/30 bg-emerald-soft/10 text-emerald-soft'
+                      : 'border-rose-400/30 bg-rose-400/10 text-rose-300',
                   )}
                 >
-                  <span
-                    className={clsx(
-                      'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-thaw shadow transition-transform',
-                      composerAnonymous && 'translate-x-4',
-                    )}
-                  />
-                </button>
+                  <AtSign className="h-3 w-3" />
+                  {hasVibeTag ? vibeTag : 'no vibetag'}
+                </span>
               </div>
             </div>
+            <p className="mt-2 font-mono text-[9px] tracking-[0.14em] uppercase">
+              {hasVibeTag ? (
+                <span className="text-muted">
+                  Posting as <span className="text-emerald-soft">{vibeTag}</span>
+                </span>
+              ) : (
+                <span className="text-rose-400">
+                  You need a VibeTag to post —{' '}
+                  <button
+                    type="button"
+                    onClick={() => navigate('/app/profile')}
+                    className="underline hover:text-rose-300"
+                  >
+                    create one in Profile
+                  </button>
+                </span>
+              )}
+            </p>
             <input
               value={composer.title}
               onChange={(e) => setComposer((d) => ({ ...d, title: e.target.value }))}
@@ -427,18 +462,12 @@ export function CommunityPage() {
                       <p className="mt-1 text-sm leading-relaxed text-muted">{post.body}</p>
                       <div className="mt-2.5 flex flex-wrap items-center gap-3 text-xs text-muted">
                         <span className="flex items-center gap-1.5">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-ice/15 bg-ice/[0.06] text-[9px] font-semibold text-ice/60">
-                            {post.anonymous ? (
-                              <Eye className="h-2.5 w-2.5" />
-                            ) : (
-                              (post.authorName || 'Student')
-                                .split(' ')
-                                .map((w) => w[0])
-                                .join('')
-                                .slice(0, 2)
-                            )}
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-violet/30 bg-violet/15 text-[9px] font-semibold text-violet-soft uppercase">
+                            {(post.authorName || '?').replace(/^vibe/i, '').slice(0, 2) || '?'}
                           </span>
-                          {post.anonymous ? 'Anonymous' : post.authorName}
+                          <span className="font-mono text-[11px] tracking-[0.1em] text-ice/80">
+                            {post.authorName || 'Student'}
+                          </span>
                         </span>
                         <button
                           type="button"

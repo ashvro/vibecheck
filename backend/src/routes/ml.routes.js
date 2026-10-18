@@ -3,7 +3,7 @@
  * scoring. There is no roster here any more - /api/analytics/insights is the
  * single role-scoped table, so the two can never disagree.
  *
- * Individual student records are never served from this router; wellbeing
+ * Individual student records are never served from this router; academic
  * scoping in particular lives in src/analytics/scope.js.
  */
 
@@ -78,8 +78,8 @@ mlRoutes.get('/model-info', (_req, res, next) => {
  */
 mlRoutes.post('/predict', (req, res, next) => {
   try {
-    const { sentiment, attendance, cgpa } = req.body ?? {}
-    const prediction = predictRisk({ sentiment, attendance, cgpa })
+    const { attendance, cgpa } = req.body ?? {}
+    const prediction = predictRisk({ attendance, cgpa })
     res.json(prediction)
   } catch (err) {
     next(err)

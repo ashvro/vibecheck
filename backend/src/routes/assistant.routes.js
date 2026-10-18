@@ -5,12 +5,10 @@ import {
   groqChat,
   groqChatStream,
   groqTranscribe,
-  analyzeEmotion,
   hasGroq,
   modelConfig,
 } from '../utils/llm.js'
-import { ttsProvider, synthesizeSpeech, isAbortError } from '../utils/tts.js'
-import { analyzeSentiment } from '../utils/sentiment.js'
+import { ttsProvider, synthesizeSpeech, listVoices, isAbortError } from '../utils/tts.js'
 import { requireAuth } from '../middleware/auth.js'
 import {
   resolveEvidence,
@@ -67,26 +65,6 @@ async function ensureSession(req, sessionId) {
   return prisma.chatSession.create({ data: { userId: userIdOf(req), title: 'New chat' } })
 }
 
-async function recomputeSessionSentiment(sessionId) {
-  // Well-being is measured only from the turns the pipeline actually scored.
-  // Scoring is already scoped to mental-health and crisis turns at write time
-  // (see runPipeline), so "has a score" is exactly "is a well-being signal" —
-  // a session drifts across topics and the academic/general turns carry no
-  // score and drop out here.
-  //
-  // The value is a plain mean so it matches the running average shown beside
-  // each reply in the assistant (and the % in the analytics well-being card).
-  const rows = await prisma.chatMessage.findMany({
-    where: { sessionId, role: 'user', score: { not: null } },
-    orderBy: { createdAt: 'asc' },
-    select: { score: true },
-  })
-  if (!rows.length) return null
-
-  const sum = rows.reduce((total, row) => total + row.score, 0)
-  return Math.round((sum / rows.length) * 100) / 100
-}
-
 assistantRoutes.get('/sessions', async (req, res, next) => {
   try {
     const sessions = await prisma.chatSession.findMany({
@@ -102,7 +80,6 @@ assistantRoutes.get('/sessions', async (req, res, next) => {
         id: s.id,
         title: s.title,
         intent: s.intent,
-        sentimentScore: s.sentimentScore,
         updatedAt: s.updatedAt,
         messageCount: s._count.messages,
         preview: s.messages[0]?.content ?? null,
@@ -171,8 +148,8 @@ async function analyzeMessage(text, { signal } = {}) {
   const system = `You are the analysis stage of a student support assistant. Read the student's latest message and return its intent and safety risk in one pass.
 
 INTENT (exactly one). Pick the single best fit. If more than one seems to apply, choose the one that lets the assistant help the student most — anything emotional or about how they FEEL is mental_health even when it mentions exams, grades, or a job.
-- mental_health: any emotion, feeling, stress, anxiety, mood, burnout, sleep, tiredness, loneliness, overwhelm, self-worth, motivation, or how they are doing. Also any hint of self-harm or not wanting to be here. Example: "I'm so stressed about my exam I can't sleep" is mental_health, NOT academics.
-- academics: a subject, concept, assignment, homework, study plan, or exam question where they want the material itself explained, solved, or understood, with NO emotional content. Example: "explain photosynthesis" or "how do I solve this integral".
+- mental_health: genuine emotional distress, mood concerns, or crisis/self-harm indicators. Acknowledge stress alongside academics, but classify as academics if the primary ask is about the subject/assignment (e.g. "I'm stressed about exams, how do I study?" is primarily academics; "I'm overwhelmed and don't see the point anymore" is mental_health). Also includes self-harm, burnout that blocks functioning, loneliness, etc.
+- academics: subject concepts, assignments, homework, study plans, exam prep, or problem-solving where they want material explained/solved, even if they mention stress about it. Example: "I'm so stressed about my exam I can't sleep — how do I revise?" is academics (primary ask is revision strategy). "explain photosynthesis" is academics.
 - career: placements, internships, jobs, resumes, interviews, skills, or career direction.
 - general: greetings, small talk, jokes, or open questions about the assistant; anything that is not the above.
 
@@ -191,13 +168,8 @@ Respond ONLY with JSON:
     user: `Student message: ${text}`,
     json: true,
     temperature: 0,
-    // Reasoning tokens count against max_tokens on gpt-oss, so at the default
-    // medium effort a tight 250-token budget could be consumed entirely by
-    // thinking — leaving an empty or truncated JSON body, which silently
-    // degrades every message to the `general` intent. Think lightly, budget
-    // generously, and classify reliably.
     reasoningEffort: 'low',
-    maxTokens: 700,
+    maxTokens: 400,
     model: modelConfig.groqFastModel,
     signal,
   })
@@ -210,13 +182,13 @@ Respond ONLY with JSON:
 
 function safetyResponse(riskLevel) {
   const base =
-    "I'm really glad you reached out and told me how you're feeling. What you're going through matters, and you don't have to carry it alone. I'm not a therapist and I can't give medical advice, but I can be honest with you: these feelings deserve real support from a trusted person and from a professional.\n\n"
+    "I'm really glad you told me — that took courage, and I want you to know I'm taking this seriously. You are not a burden, and what you're feeling right now is pain talking, not the truth about your life. These feelings are temporary, even when they don't feel temporary.\n\n"
 
   if (riskLevel === 'critical') {
-    return `${base}Right now, because there is an immediate risk to your safety, please don't wait. If you are in immediate danger or have a plan to harm yourself, call your local emergency number now or go to the nearest emergency room. Keep a trusted person close by and let them know how you're doing.\n\nThis moment does not define you, and you are not a burden. I can stay here with you and help you list crisis lines or support numbers for your region if that helps. Do you want me to do that?`
+    return `${base}Right now, please take one step with me: reach out to someone who can be physically with you tonight — a friend, a roommate, a sibling, anyone. You don't have to explain everything; just say you need company. And please call a crisis line — in India, Tele-MANAS is free on 14416 and iCall on 9152987821, both 24/7 with people trained for exactly this moment. If you feel you're in immediate danger, call 112 or go to the nearest hospital.\n\nI'm not going anywhere — you can keep talking to me right here. You matter, far more than this moment is telling you, and you've survived every hard day so far. Let's take it one small hour at a time. What's one tiny thing I can help you with right now?`
   }
 
-  return `${base}Please reach out today to someone you trust, and consider connecting with your campus counselor or a crisis line — they are trained for exactly this and will listen without judgment. You deserve a safe space to unpack this. Would you like me to share crisis or counseling contact resources?`
+  return `${base}Please reach out today to one person you trust — a friend, a sibling, anyone — and tell them how you're really doing. You don't have to go through this alone, and talking about it is not a weakness. If talking feels hard right now, Tele-MANAS (14416) and iCall (9152987821) are free, confidential, and open 24/7.\n\nAnd I'm right here with you — we can keep talking for as long as you need. You've gotten through heavy days before, and you'll get through this one too. What would help most right now: just venting, or working out one small next step together?`
 }
 
 /**
@@ -226,9 +198,9 @@ function safetyResponse(riskLevel) {
  */
 function safetyResponseVoice(riskLevel) {
   if (riskLevel === 'critical') {
-    return "I'm really glad you told me. Please call your local emergency number right now, or go to the nearest emergency room, and stay with someone you trust until you feel safer. I'm staying right here with you."
+    return "I'm really glad you told me — that took courage. Please call 14416 right now, that's Tele-MANAS, free and open all night, or 112 if you're in danger, and stay with someone you trust tonight. You matter, and this feeling will pass. I'm staying right here with you."
   }
-  return "I'm really glad you reached out. Please talk to someone you trust today, and consider your campus counselor or a crisis line, they're trained for exactly this. Would you like me to find those numbers for you?"
+  return "I hear you, and I'm glad you reached out. Please tell one person today how you're really doing — a friend, anyone — and if talking feels hard, call 14416, that's Tele-MANAS, free and 24/7. You've made it through heavy days before, and you'll get through this one. I'm right here with you for as long as you need."
 }
 
 function cleanPara(value) {
@@ -250,11 +222,11 @@ function normalizeReplyText(raw) {
 
 async function generateReply(context, { onDelta, signal } = {}) {
   const {
-    intent, text, history, sentiment, emotion, riskLevel, riskReason,
+    intent, text, history, riskLevel, riskReason,
     category, evidence, evidenceUsed, correction, userContext, userDataQ, voice,
   } = context
 
-  const system = `You are "VibeCheck", a warm student support assistant built for college students. You sound like a smart, kind upper-year friend — Gen Z, casual, real — never like a corporate chatbot or a textbook. Your job: genuinely help across academics, career, and well-being, and be responsible with mental-health topics.
+  const system = `You are "VibeCheck", a warm student support assistant built for college students. You sound like a smart, kind upper-year friend — Gen Z, casual, real — never like a corporate chatbot or a textbook. Your job: genuinely help across academics, career, and well-being. Be responsible with mental-health topics. Match what the user asks for first.
 
 PERSONA & TONE:
 - Talk like an actual person, not a brand. Contractions, short sentences, everyday words: "you're", "let's", "that's", "yeah".
@@ -262,14 +234,13 @@ PERSONA & TONE:
 - Light, natural student slang is welcome when it genuinely fits ("that's rough", "no stress", "let's break it down", "you've got this"). Use at most one touch per reply, never stack it, never mock, never try too hard — forced slang reads as cringe and breaks trust.
 - Sound like a peer who has been through it, not an authority. No lecturing, no "As an AI", no "Certainly!", no corporate filler.
 - Be specific and real. Vague hype ("just stay positive!") is worse than saying less.
-- mental_health: warmth first, always. Casual is NOT dismissive — never make light of self-harm, crisis, or serious distress, and drop the slang entirely when someone is struggling.
+- mental_health: warmth first, always. Casual is NOT dismissive — never make light of self-harm, crisis, or serious distress, and drop the slang entirely when someone is struggling. Motivate them without being preachy — remind them, gently, that they have gotten through hard days before and that this feeling is a moment, not the rest of their life. Validate first, then suggest, then encourage. If they reject the first suggestion, don't repeat it — go deeper: ask what specifically feels impossible, or offer a smaller, lower-effort step (one glass of water, five minutes outside, one message to one person). Never end a mental-health reply with just a resource list; always leave them with one small, doable thing and a reason they can do it.
 - academics: explain like a smart friend in the same class. Plain words, a real-world analogy, then one clear step at a time.
 - general/career: chat naturally and leave them with one concrete, useful thing.
 
 DETECTED CONTEXT:
 - Intent: ${intent}
 - Risk level (independent assessment): ${riskLevel}${riskReason ? ` — ${riskReason}` : ''}
-${sentiment != null ? `- Mental-health sentiment for this message (0 = emotionally drained, 1 = flourishing): ${sentiment}${emotion ? ` (emotion: ${emotion})` : ''}` : ''}
 ${category ? `- Mental-health support area: ${category}` : ''}
 ${correction ? `- NOTE: a previous reply failed this check: ${correction}. Fix that issue now.` : ''}
 
@@ -277,6 +248,7 @@ ${userContext ? `USER CONTEXT (real, current data from this student's account �
 
 ${voice ? `
 VOICE MODE — this reply is SPOKEN ALOUD, not read on screen. These rules override the paragraph and length rules above:
+- You MUST reply ONLY in English. Do not use Hindi, Urdu, Hinglish, transliterated Hindi, or any other language. Never mix languages.
 - Two to four short sentences. Aim for roughly 40 to 60 words. Enough to actually help, never a monologue.
 - Keep the same warm, casual, peer-to-peer tone as above — but drop slang entirely if the topic is mental health or distress.
 - Write for the ear. NO markdown, NO lists, NO headings, NO bullet or numbered lists, NO URLs, NO emoji, NO parentheses, NO asterisks, NO em dashes.
@@ -287,14 +259,14 @@ VOICE MODE — this reply is SPOKEN ALOUD, not read on screen. These rules overr
 - Only end with a question if you genuinely could not answer without more detail — otherwise finish on your answer, not on a question.
 - For academics: name the concept in one plain sentence, then add a short question only if it genuinely helps them go further.
 - For career: give one concrete next step; only ask a direction question if it helps, never instead of a next step.
-- For mental health: one warm validating sentence and one small, doable suggestion. Grounded in EVIDENCE when present.
+- For mental health: one warm validating sentence. If loneliness/social isolation is the issue, prioritize concrete, low-pressure connection ideas (shared activity, classmate, club, recurring group) over generic self-soothing. Otherwise give one small, doable suggestion. Grounded in EVIDENCE when present.
 ` : ''}
 
 STAGE-SPECIFIC BEHAVIOUR:
 1. general — reply warmly and naturally. Short, conversational, no retrieval.
 2. academics — act as an adaptive tutor. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Give a plain definition, an intuitive analogy, then a clear walkthrough with a small concrete example, and answer the actual question. A short practice question at the end is welcome but optional.
 3. career — give a structured, personalized path: acknowledge their goal, name relevant skills/topics, then a practical sequence (learn → practice → projects → apply). Always include the next concrete step; a focusing follow-up question is optional.
-4. mental_health (low/moderate risk) — validate their feelings without overreacting, stay calm and non-judgmental, and ground concrete suggestions in the retrieved knowledge below whenever it is available. Always answer the user's actual question — never reply with generic routing or "share more" prompts. Never diagnose, never claim to be a therapist, never invent medical facts, statistics, or sources.
+4. mental_health (any risk level, including high) — validate their feelings without overreacting, stay calm and non-judgmental, and ground concrete suggestions in the retrieved knowledge below whenever it is available. For high risk: motivate them — acknowledge how heavy it is, remind them they have survived hard days before, and leave them with one small doable step and a reason they can do it. Always answer the user's actual question — never reply with generic routing or "share more" prompts. Never diagnose, never claim to be a therapist, never invent medical facts, statistics, or sources.
 
 EVIDENCE (only when retrieved — may be empty):
 ${evidenceUsed && evidence.length
@@ -322,8 +294,8 @@ ALWAYS:
 - Be concise (match the length the message warrants).
 - Address the student's message directly and mirror their key phrases.
 - Do not fabricate sources, links, citations, or statistics.
-- Do not present sentiment or emotion as a diagnosis.
-- For high/critical risk conversations the safety message is handled separately; here just give a brief, caring, steady response.
+- Do not present the student's emotional state as a diagnosis.
+- For critical risk conversations the safety message is handled separately; here just give a brief, caring, steady response. For high risk, this is your chance to be the support they need: acknowledge their pain, motivate them without lecturing, remind them they've survived hard days before, and leave them with one small doable step and a reason they can do it.
 - Personal/account questions (grades, attendance, mood, clubs, courses, posts, risk) must be answered ONLY from USER CONTEXT when available.`
 
   const emit = onDelta
@@ -335,9 +307,7 @@ ALWAYS:
     user: text,
     history,
     temperature: voice ? 0.7 : 0.6,
-    maxTokens: voice ? 900 : 1500,
-    // Reasoning runs before any visible text is streamed, so it directly delays
-    // the first spoken word. Voice turns think lightly and speak sooner.
+    maxTokens: voice ? 600 : 900,
     reasoningEffort: voice ? 'low' : undefined,
     onDelta: emit,
     signal,
@@ -365,6 +335,7 @@ Respond ONLY with JSON: {"ok": true|false, "issue": "<short description if not o
     json: true,
     temperature: 0,
     reasoningEffort: 'low',
+    maxTokens: 250,
   })
   return { ok: data?.ok !== false, issue: typeof data?.issue === 'string' ? data.issue : '' }
 }
@@ -372,10 +343,10 @@ Respond ONLY with JSON: {"ok": true|false, "issue": "<short description if not o
 function fallbackReply(text) {
   const lower = text.toLowerCase()
   if (CRITICAL_PATTERNS.some((p) => lower.includes(p))) {
-    return "I'm really glad you told me. You deserve support right now — if you're in immediate danger, reach your local emergency services now, and please keep someone you trust close. I'm here with you and can help you find a crisis line if you want."
+    return "I'm really glad you told me — that took courage. You are not a burden. Please call 14416 (Tele-MANAS, free, 24/7) or 112 right now if you're in danger, and stay with someone you trust tonight. I'm right here with you."
   }
-  if (/(stress|anxious|anxiety|sad|hopeless|overwhelm|alone|burnout|tired|cant sleep|can't sleep|afraid|worried)/.test(lower)) {
-    return "That sounds genuinely heavy, and it makes sense you feel this way. One thing that helps in the moment: pick the smallest next step — a glass of water, a few slow breaths, or a short walk — and then let one person you trust know how you're doing. You don't have to sort it all out at once, and reaching out to your campus counselor is a solid move when you're ready."
+  if (/(stress|anxious|anxiety|sad|hopeless|overwhelm|alone|burnout|tired|cant sleep|can't sleep|afraid|worried|give up)/.test(lower)) {
+    return "That sounds genuinely heavy, and it makes sense you feel this way. You've gotten through hard days before — this one doesn't get to decide the rest of your story. Start tiny: a glass of water, a few slow breaths, five minutes outside. And please tell one person today how you're really doing — a friend, a sibling, anyone. If talking feels hard, Tele-MANAS (14416) is free and open 24/7. I'm right here with you for as long as you need."
   }
   if (/(exam|test|stud|assignment|subject|theorem|solve|learn|explain|concept|homework|revis)/.test(lower)) {
     return "Here's the fastest way through it: start from the core idea, break it into one small piece at a time, and check yourself with a quick example as you go. Tell me the exact topic or question and I'll walk you through it step by step."
@@ -388,7 +359,7 @@ function fallbackReply(text) {
 
 function looksLikeUserDataQuestion(text) {
   const t = text.toLowerCase()
-  const topic = /(grade|grading|marks|attendance|attended|percentage|mood|check-?in|club|post|posts?|course|enrolled|enrolment|enrollment|risk|ia1|ia2|sentiment|classes|submission|score)/.test(t)
+  const topic = /(grade|grading|marks|attendance|attended|percentage|mood|check-?in|club|post|posts?|course|enrolled|enrolment|enrollment|risk|ia1|ia2|classes|submission|score)/.test(t)
   const asks = /(what|how|which|where|show|tell|list|do i|did i|am i|have i|is my|my)/.test(t)
   return topic && asks
 }
@@ -434,21 +405,20 @@ function evidenceSources(evidence, subject = null) {
 }
 
 /**
- * Emotion + knowledge retrieval for a well-being message. These are the slow,
- * network-bound steps and they do NOT depend on the LLM classifier, so when the
- * message already reads as emotional we start them alongside the analysis call
- * rather than waiting for it.
+ * Knowledge retrieval for a well-being message. This is the slow,
+ * network-bound step and it does NOT depend on the LLM classifier, so when the
+ * message already reads as a well-being turn we start it alongside the analysis
+ * call rather than waiting for it.
  */
 function enrichMentalHealth(text) {
   const category = detectSupportCategory(text)
   return Promise.allSettled([
-    analyzeEmotion(text),
     resolveEvidence({ intent: 'mental_health', message: text, category }),
-  ]).then(([emotionResult, retrievalResult]) => ({ category, emotionResult, retrievalResult }))
+  ]).then(([retrievalResult]) => ({ category, retrievalResult }))
 }
 
 /** Cheap pre-check so we only speculate enrichment on likely well-being turns. */
-const EMOTION_HINTS = /(stress|anxious|anxiety|panic|sad|depress|hopeless|overwhelm|burn(?:t|ed)? ?out|exhaust|lonely|alone|sleep|insomnia|tired|mood|feel|feeling|emotion|motivat|cry|worried|worry|nervous|afraid|scared|cannot cope|can't cope|cant cope|give up|no reason|hate myself|worthless|failure|self.?harm|suicid|want to die|kill myself)/i
+const WELLBEING_HINTS = /(stress|anxious|anxiety|panic|sad|depress|hopeless|overwhelm|burn(?:t|ed)? ?out|exhaust|lonely|alone|sleep|insomnia|tired|mood|feel|feeling|emotion|motivat|cry|worried|worry|nervous|afraid|scared|cannot cope|can't cope|cant cope|give up|no reason|hate myself|worthless|failure|self.?harm|suicid|want to die|kill myself)/i
 
 const ENRICHMENT_TIMEOUT = Symbol('enrichment-timed-out')
 
@@ -465,12 +435,11 @@ function waitFor(ms) {
 async function runPipeline(text, history = [], userContext = null, { onDelta, onMeta, onRevision, signal, analysis, voice } = {}) {
   const hardRisk = hardRiskCheck(text)
 
-  // Well-being enrichment is network-bound and independent of the classifier,
-  // so kick it off now on likely emotional messages and overlap it with the
+  // Well-being retrieval is network-bound and independent of the classifier,
+  // so kick it off now on likely well-being messages and overlap it with the
   // analysis call instead of stacking the two latencies. Crisis messages are
-  // included too: their reply is canned, but their score still feeds the risk
-  // model.
-  const speculativeEnrichment = EMOTION_HINTS.test(text) || hardRisk
+  // included too: their reply is canned, but its sources still ground it.
+  const speculativeEnrichment = WELLBEING_HINTS.test(text) || hardRisk
     ? enrichMentalHealth(text)
     : null
 
@@ -497,68 +466,32 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
   const userDataQ = userContext ? looksLikeUserDataQuestion(text) : null
 
   // Intent and risk are settled here — tell the client before the slower
-  // emotion/retrieval work so the chips render while enrichment is in flight.
+  // retrieval work so the chips render while enrichment is in flight.
   onMeta?.({ intent, riskLevel })
 
-  let sentiment = null
-  let emotion = null
-  let sentimentSource = null
-  let sentimentConfidence = null
-  let sentimentDetail = null
   let category = null
   let evidence = []
   let evidenceUsed = false
 
-  const safetyPath = riskLevel === 'high' || riskLevel === 'critical'
-
-  const takeEmotion = (enriched) => {
-    if (enriched !== ENRICHMENT_TIMEOUT && enriched.emotionResult?.status === 'fulfilled') {
-      const value = enriched.emotionResult.value
-      sentiment = value.sentiment
-      emotion = value.emotion
-      sentimentSource = value.detail?.version ?? 'goemotions-nrcvad-v1'
-      sentimentConfidence = value.confidence ?? null
-      sentimentDetail = value.detail ?? null
-      return
-    }
-    // The hosted emotion model is unavailable (no key, cold start, rate limit)
-    // — fall back to the local lexicon so a well-being turn still carries a
-    // score. A null here would be imputed as the training mean by the risk
-    // model, i.e. a distressed student scored as average.
-    const local = analyzeSentiment(text)
-    sentiment = Math.round(((local.score + 1) / 2) * 100) / 100
-    emotion = local.label.toLowerCase()
-    sentimentSource = local.source
-    sentimentConfidence = local.confidence
-    sentimentDetail = local.detail
-  }
-
-  // Deferred score: the reply must not wait for emotion analysis, but the
-  // score must still exist. Previously a null sentiment made the predictor
-  // impute the training mean — i.e. score the most distressed students as
-  // average, the exact inverse of the intended signal.
-  let pendingScore = null
+  const safetyPath = riskLevel === 'critical'
 
   if (intent === 'mental_health' && !safetyPath) {
     category = detectSupportCategory(text)
     const pending = speculativeEnrichment ?? enrichMentalHealth(text)
-    // A cold embedding or emotion model can block for seconds, and voice turns
-    // must feel like a live call. If enrichment doesn't come back in time we
-    // reply without it — the prompt already covers the no-evidence case. Text
-    // turns can afford to wait and stay fully grounded.
+    // A cold embedding model can block for seconds, and voice turns must feel
+    // like a live call. If retrieval doesn't come back in time we reply without
+    // it — the prompt already covers the no-evidence case. Text turns can
+    // afford to wait and stay fully grounded.
     const enriched = voice
       ? await Promise.race([pending, waitFor(1500)])
       : await pending
 
-    takeEmotion(enriched)
     if (enriched !== ENRICHMENT_TIMEOUT && enriched.retrievalResult.status === 'fulfilled') {
       evidence = enriched.retrievalResult.value.results
       evidenceUsed = enriched.retrievalResult.value.used
     }
   } else if (intent === 'academics' || intent === 'career') {
     // Academic and career answers are grounded in the ingested textbooks/guides.
-    // No emotion scoring here — these turns carry no well-being signal, and the
-    // session average is intentionally scoped to mental-health turns.
     try {
       const retrieval = await resolveEvidence({ intent, message: text })
       evidence = retrieval.results
@@ -567,23 +500,13 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
       evidence = []
       evidenceUsed = false
     }
-  } else if (safetyPath) {
-    // Crisis and high-risk turns are well-being signal whatever intent the
-    // classifier picked — a null here is imputed as the training mean by the
-    // risk model, scoring the most distressed students as average. The reply is
-    // canned, so the score runs alongside it and is collected before returning.
-    //
-    // Anything else that is not mental_health is deliberately left unscored:
-    // the session average and the analytics well-being % cover mental-health
-    // conversations, not academic or general chit-chat.
-    pendingScore = (speculativeEnrichment ?? enrichMentalHealth(text)).then(takeEmotion)
   }
 
   let reply
   let verified = true
   let verifiedIssue = ''
 
-  if (riskLevel === 'high' || riskLevel === 'critical') {
+  if (riskLevel === 'critical') {
     reply = voice ? safetyResponseVoice(riskLevel) : safetyResponse(riskLevel)
     onDelta?.(reply)
   } else if (!hasGroq()) {
@@ -591,7 +514,7 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
     onDelta?.(reply)
   } else {
     const baseContext = {
-      intent, text, history, sentiment, emotion, riskLevel, riskReason,
+      intent, text, history, riskLevel, riskReason,
       category, evidence, evidenceUsed, userContext, userDataQ, voice,
     }
     const fallback = fallbackReply(text)
@@ -663,21 +586,10 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
     }
   }
 
-  // The deferred score has overlapped the whole reply generation, so this
-  // rarely waits; the cap keeps persistence from stalling on a cold model.
-  if (pendingScore) {
-    await Promise.race([pendingScore, waitFor(2000)])
-  }
-
   return {
     intent,
     riskLevel,
     riskReason,
-    sentiment,
-    emotion,
-    sentimentSource,
-    sentimentConfidence,
-    sentimentDetail,
     category,
     evidence,
     evidenceUsed,
@@ -730,14 +642,6 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
       content: text,
       intent: result.intent,
       riskLevel: result.riskLevel,
-      label: result.emotion,
-      score: result.sentiment,
-      // The evidence behind the score: which scorer produced it, how certain it
-      // was, and the emotion distribution / matched terms it came from. Stored
-      // so any value shown to a student or judge can be explained after the fact.
-      sentimentSource: result.sentimentSource,
-      sentimentConfidence: result.sentimentConfidence,
-      sentimentDetail: result.sentimentDetail ? JSON.stringify(result.sentimentDetail) : null,
     },
   })
 
@@ -761,7 +665,7 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     },
   })
 
-  const sessionData = { sentimentScore: await recomputeSessionSentiment(session.id) }
+  const sessionData = {}
   if (session.title === 'New chat') sessionData.title = text.slice(0, 48)
   const insightIntent = result.intent === 'general' ? session.intent || null : result.intent
   if (insightIntent) sessionData.intent = insightIntent
@@ -776,10 +680,6 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     meta: {
       intent: result.intent,
       riskLevel: result.riskLevel,
-      sentimentScore: result.sentiment,
-      emotion: result.emotion,
-      sentimentSource: result.sentimentSource,
-      sentimentConfidence: result.sentimentConfidence,
       category: result.category,
       evidenceUsed: result.evidenceUsed,
       evidenceCount: result.evidence.length,
@@ -792,7 +692,20 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
 }
 
 assistantRoutes.get('/tts/status', (req, res) => {
-  res.json({ provider: ttsProvider(), model: process.env.ELEVENLABS_VOICE_MODEL || 'eleven_flash_v2_5' })
+  res.json({
+    provider: ttsProvider(),
+    model: process.env.ELEVENLABS_VOICE_MODEL || 'eleven_flash_v2_5',
+    defaultVoiceId: process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB',
+  })
+})
+
+assistantRoutes.get('/voices', async (req, res, next) => {
+  try {
+    const voices = await listVoices()
+    res.json({ voices })
+  } catch (err) {
+    next(err)
+  }
 })
 
 assistantRoutes.post('/tts', requireAuth, async (req, res) => {
@@ -803,8 +716,8 @@ assistantRoutes.post('/tts', requireAuth, async (req, res) => {
     if (!ttsProvider()) {
       return res.status(501).json({ error: 'No TTS provider configured.' })
     }
-    const { text } = req.body || {}
-    const { contentType, body } = await synthesizeSpeech({ text, signal: controller.signal })
+    const { text, voiceId } = req.body || {}
+    const { contentType, body } = await synthesizeSpeech({ text, voiceId, signal: controller.signal })
 
     res.writeHead(200, {
       'Content-Type': contentType,

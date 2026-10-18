@@ -12,8 +12,6 @@ export type VoicePhase =
 export type VoiceReplyMeta = {
   intent?: string | null
   riskLevel?: string | null
-  sentimentScore?: number | null
-  emotion?: string | null
 }
 
 export type VoiceHandlers = {

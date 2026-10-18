@@ -254,10 +254,17 @@ export async function resolveEvidence({ intent, message, category }) {
   const sufficiencyCheck = attempt.results.length > 0 && attempt.bestScore >= SUFFICIENCY_THRESHOLD
 
   if (!sufficiencyCheck) {
-    const reformulated =
-      intent === 'mental_health'
-        ? `${message} support coping strategies self care wellbeing`
-        : `${message}${subject ? ` ${subject}` : ''} ${intent} textbook explanation key concepts definition`
+    let reformulated
+    if (intent === 'mental_health') {
+      const cat = category ? normalizeCategory(category) : null
+      if (cat === 'loneliness') {
+        reformulated = `${message} loneliness social connection making friends peer support community activities`
+      } else {
+        reformulated = `${message} support coping strategies self care wellbeing`
+      }
+    } else {
+      reformulated = `${message}${subject ? ` ${subject}` : ''} ${intent} textbook explanation key concepts definition`
+    }
     attempt = await retrieve(reformulated, { collections, boosts, topK })
   }
 

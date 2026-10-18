@@ -3,22 +3,54 @@ import { getToken } from './api'
 export type TtsProvider = string | null
 
 let providerCache: TtsProvider | undefined
+let ttsStatusCache: { provider: TtsProvider; model?: string; defaultVoiceId?: string } | null = null
 
-export async function getTtsProvider(): Promise<TtsProvider> {
-  if (providerCache !== undefined) return providerCache
+export async function getTtsStatus(): Promise<{ provider: TtsProvider; model?: string; defaultVoiceId?: string }> {
+  if (ttsStatusCache) return ttsStatusCache
   try {
     const res = await fetch('/api/assistant/tts/status')
     if (!res.ok) throw new Error(String(res.status))
-    const data = (await res.json()) as { provider?: string | null }
-    providerCache = data.provider ?? null
+    const data = (await res.json()) as { provider?: string | null; model?: string; defaultVoiceId?: string }
+    ttsStatusCache = { provider: data.provider ?? null, model: data.model, defaultVoiceId: data.defaultVoiceId }
   } catch {
-    providerCache = null
+    ttsStatusCache = { provider: null }
   }
+  return ttsStatusCache
+}
+
+export async function getTtsProvider(): Promise<TtsProvider> {
+  const s = await getTtsStatus()
+  providerCache = s.provider
   return providerCache
 }
 
 export function resetTtsProviderCache() {
   providerCache = undefined
+  ttsStatusCache = null
+}
+
+const VOICE_KEY = 'vibecheck:voiceId'
+
+export function getSelectedVoiceId(): string | null {
+  if (typeof localStorage === 'undefined') return null
+  return localStorage.getItem(VOICE_KEY)
+}
+
+export function setSelectedVoiceId(id: string | null) {
+  if (typeof localStorage === 'undefined') return
+  if (id) localStorage.setItem(VOICE_KEY, id)
+  else localStorage.removeItem(VOICE_KEY)
+}
+
+export async function listTtsVoices(): Promise<Array<{ id: string; name: string; preview_url?: string | null }>> {
+  try {
+    const res = await fetch('/api/assistant/voices')
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data.voices) ? data.voices : []
+  } catch {
+    return []
+  }
 }
 
 function browserSupported(): boolean {
@@ -52,6 +84,10 @@ function pickEnglishVoice(): SpeechSynthesisVoice | null {
   if (!voices.length) return null
   const preferred = ['Google US English', 'Microsoft Aria', 'Microsoft Zira', 'Samantha', 'Daniel']
   for (const label of preferred) {
+    const found = voices.find((v) => v.name.includes(label))
+    if (found) return found
+  }
+  for (const label of ['Samantha', 'Alex', 'Google US English', 'Microsoft Aria', 'Microsoft Zira', 'Daniel']) {
     const found = voices.find((v) => v.name.includes(label))
     if (found) return found
   }
@@ -204,13 +240,16 @@ class NeuralSpeaker implements Speaker {
     if (!text.trim()) return { text, buffer: null, token }
     try {
       const auth = getToken()
+      const voiceId = getSelectedVoiceId()
+      const body: { text: string; voiceId?: string } = { text }
+      if (voiceId) body.voiceId = voiceId
       const res = await fetch('/api/assistant/tts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(body),
         signal,
       })
       if (!res.ok || !res.body) throw new Error(`TTS failed (${res.status})`)

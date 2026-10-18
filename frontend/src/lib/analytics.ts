@@ -24,12 +24,6 @@ export type InsightRow = {
   confidence: number
   imputed: string[]
   dataComplete: boolean
-  /**
-   * The individual wellbeing score, or null when the viewer is not allowed to
-   * see it. Teachers never get this - the server sends null, not a number.
-   */
-  wellbeing: number | null
-  wellbeingVisible: boolean
   referralOpen: boolean
 }
 
@@ -42,8 +36,6 @@ export type CourseInsight = {
   unassigned: boolean
   avgAttendance: number | null
   avgMarks: number | null
-  avgWellbeing: number | null
-  wellbeingSample: number
 }
 
 export type Insights = {
@@ -52,25 +44,8 @@ export type Insights = {
   students: number
   rows: InsightRow[]
   courses: CourseInsight[]
-  avgWellbeing: number | null
-  wellbeingSample: number
-  canSeeIndividualWellbeing: boolean
   canResolveReferrals: boolean
   openReferrals: number
-}
-
-export type WellbeingTrend = {
-  average: number | null
-  averagePct: number | null
-  messages: number
-  sessions: number
-  weeks: { week: string; count: number; sentiment: number | null }[]
-  /**
-   * Points for the well-being chart. A student gets their own session scores;
-   * staff get the weekly cohort average.
-   */
-  series: { label: string; value: number | null }[]
-  scope: string
 }
 
 export type Referral = {
@@ -95,7 +70,7 @@ type MlModelInfoShape = {
   primaryModel: string
   accuracyTest: number
   accuracyFull: number
-  labelWeights: { attendance: number; sentiment: number; marks: number }
+  labelWeights: { attendance: number; marks: number }
   dataset: {
     rows: number
     trainRows: number
@@ -130,7 +105,6 @@ export type DashboardSummary = {
 
 export const analyticsApi = {
   insights: () => api.get<Insights>('/api/analytics/insights'),
-  wellbeing: () => api.get<WellbeingTrend>('/api/analytics/wellbeing'),
   referrals: () => api.get<Referral[]>('/api/analytics/referrals'),
   raiseReferral: (body: { studentId: number; courseId?: number | null; reason: string; note?: string | null }) =>
     api.post<{ id: number; status: string }>('/api/analytics/referrals', body),

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -28,7 +26,6 @@ import {
   type ModelGovernance,
   type Referral,
   type RiskLevel,
-  type WellbeingTrend,
 } from '../../lib/analytics'
 import { mlApi, mlRiskStyles, type MlSummary } from '../../lib/ml'
 
@@ -131,38 +128,6 @@ function ChartEmpty({ children }: { children: React.ReactNode }) {
  * Charts
  * ------------------------------------------------------------------ */
 
-function SentimentChart({ points }: { points: { label: string; value: number | null }[] }) {
-  const data = points.filter((p) => p.value != null)
-  if (!data.length) {
-    return <ChartEmpty>A well-being chat with the assistant builds this graph.</ChartEmpty>
-  }
-  return (
-    <ResponsiveContainer width="100%" height={200}>
-      <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-        <defs>
-          <linearGradient id="wellbeingFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#4ade80" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="#4ade80" stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
-        <XAxis dataKey="label" tick={AXIS_TICK} interval="preserveStartEnd" />
-        <YAxis domain={[0, 100]} tick={AXIS_TICK} />
-        <Tooltip contentStyle={CHART_TOOLTIP} formatter={(v) => [`${v}%`, 'Well-being']} />
-        <Area
-          type="monotone"
-          dataKey="value"
-          stroke="#4ade80"
-          strokeWidth={2}
-          fill="url(#wellbeingFill)"
-          connectNulls
-          dot={data.length <= 8 ? { r: 2.5, fill: '#4ade80', strokeWidth: 0 } : false}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
-  )
-}
-
 type BarPoint = { label: string; primary: number | null; secondary?: number | null }
 
 /** Marks per course. Students compare IA1 vs IA2; staff see the course average. */
@@ -259,8 +224,8 @@ function StudentRiskCard({ ml, focusRow }: { ml: MlSummary | null; focusRow: Ins
         </>
       ) : (
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
-          Not enough signal to score yet — the model needs your marks, attendance and a well-being
-          conversation together. The charts below show what is still missing.
+          Not enough signal to score yet — the model needs your marks and attendance together. The
+          charts below show what is still missing.
         </p>
       )}
     </section>
@@ -334,15 +299,6 @@ function CourseRollup({ courses }: { courses: CourseInsight[] }) {
               </div>
             ))}
           </dl>
-          <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-relaxed text-muted">
-            Cohort well-being{' '}
-            <span className="font-semibold tabular-nums text-ink/80">
-              {c.avgWellbeing != null ? `${c.avgWellbeing}%` : 'no data'}
-            </span>
-            {c.wellbeingSample > 0 && (
-              <span className="text-muted/70"> · average of {c.wellbeingSample}</span>
-            )}
-          </p>
         </div>
       ))}
     </div>
@@ -484,7 +440,7 @@ function Governance({ model }: { model: ModelGovernance | null }) {
           <span className="text-ink/80">{model.primaryModel}</span> · v{model.version} ·{' '}
           {model.dataset.rows} training records ({model.dataset.trainRows} train / {model.dataset.testRows}{' '}
           test). {model.coverage.fullyObserved} of {model.coverage.students} students currently have all
-          three features observed; the rest are scored with neutral imputation and flagged as such.
+          features observed; the rest are scored with neutral imputation and flagged as such.
         </p>
       </div>
     </div>
@@ -528,7 +484,6 @@ function AuditTrail({ entries }: { entries: AuditEntry[] }) {
 
 export function AnalyticsPage() {
   const [insights, setInsights] = useState<Insights | null>(null)
-  const [wellbeing, setWellbeing] = useState<WellbeingTrend | null>(null)
   const [ml, setMl] = useState<MlSummary | null>(null)
   const [referrals, setReferrals] = useState<Referral[]>([])
   const [model, setModel] = useState<ModelGovernance | null>(null)
@@ -538,15 +493,13 @@ export function AnalyticsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [i, w, m] = await Promise.all([
+      const [i, m] = await Promise.all([
         analyticsApi.insights(),
-        analyticsApi.wellbeing(),
         // The student's own prediction; staff get an institution distribution
         // here, which this compact page does not need.
         mlApi.summary().catch(() => null),
       ])
       setInsights(i)
-      setWellbeing(w)
       setMl(m)
       // Referrals are staff-only; a 403 here is expected for students.
       analyticsApi
@@ -601,10 +554,6 @@ export function AnalyticsPage() {
     isStudent ? insights.rows.map((r) => r.marks) : insights.courses.map((c) => c.avgMarks),
   )
 
-  // The well-being % is the average of the per-session scores shown beside each
-  // conversation in the assistant — the same series the chart is drawn from.
-  const wellbeingPct = wellbeing?.averagePct ?? insights.avgWellbeing
-
   const stats: { label: string; value: string; unit?: string; tone?: string }[] = isStudent
     ? [
         {
@@ -612,7 +561,6 @@ export function AnalyticsPage() {
           value: ml?.latest?.risk ?? '—',
           tone: ml?.latest ? mlRiskStyles[ml.latest.risk].text : undefined,
         },
-        { label: 'Well-being', value: wellbeingPct != null ? String(wellbeingPct) : '—', unit: '%' },
         { label: 'Attendance', value: avgAttendance != null ? String(avgAttendance) : '—', unit: '%' },
         { label: 'Marks', value: avgMarks != null ? String(avgMarks) : '—', unit: '%' },
       ]
@@ -620,11 +568,6 @@ export function AnalyticsPage() {
         { label: 'Students', value: String(insights.students) },
         { label: 'At risk', value: String(insights.counts.Medium + insights.counts.High) },
         { label: 'Avg attendance', value: avgAttendance != null ? String(avgAttendance) : '—', unit: '%' },
-        {
-          label: 'Avg well-being',
-          value: wellbeingPct != null ? String(wellbeingPct) : '—',
-          unit: '%',
-        },
       ]
 
   const focusRow = isStudent
@@ -638,7 +581,7 @@ export function AnalyticsPage() {
         title={isStudent ? 'Your analysis' : 'Risk analytics'}
         description={
           isStudent
-            ? 'Marks, attendance and well-being — and the dropout risk they add up to.'
+            ? 'Marks and attendance — and the dropout risk they add up to.'
             : isAdmin
               ? 'Institution-wide risk, model governance and the staff access trail.'
               : 'Risk across the courses you teach.'
@@ -651,7 +594,7 @@ export function AnalyticsPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {stats.map((s) => (
           <StatChip key={s.label} label={s.label} value={s.value} unit={s.unit} tone={s.tone} />
         ))}
@@ -659,25 +602,7 @@ export function AnalyticsPage() {
 
       {isStudent && <StudentRiskCard ml={ml} focusRow={focusRow} />}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <ChartCard
-          title="Well-being"
-          caption={
-            isStudent
-              ? `Sentiment of your assistant sessions, oldest to newest${wellbeing?.sessions ? ` · ${wellbeing.sessions} session${wellbeing.sessions === 1 ? '' : 's'}` : ''}.`
-              : `Cohort average by week · ${wellbeing?.scope ?? ''}`
-          }
-          aside={
-            wellbeing
-              ? `${wellbeing.sessions} session${wellbeing.sessions === 1 ? '' : 's'} · ${
-                  wellbeing.averagePct != null ? `avg ${wellbeing.averagePct}%` : 'no score yet'
-                }`
-              : undefined
-          }
-        >
-          <SentimentChart points={wellbeing?.series ?? []} />
-        </ChartCard>
-
+      <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
           title="Marks"
           caption={isStudent ? 'IA1 vs IA2 by course.' : 'Average marks by course.'}
@@ -718,10 +643,6 @@ export function AnalyticsPage() {
                 ))}
               </div>
             </div>
-            <p className="mt-1 text-xs leading-relaxed text-muted">
-              Individual well-being scores are withheld from teaching staff — the cohort average above is
-              all you get, plus a referral route.
-            </p>
             <div className="mt-3 divide-y divide-line border-y border-line">
               {rows.length === 0 && (
                 <EmptyState>
@@ -763,7 +684,7 @@ export function AnalyticsPage() {
               <p className="mt-1 text-xs leading-relaxed text-muted">
                 {isAdmin
                   ? 'You can resolve these. Resolving is recorded in the audit trail.'
-                  : 'Cases you have handed to the safeguarding team. You can see their status, not the wellbeing data behind them.'}
+                  : 'Cases you have handed to the safeguarding team. You can see their status, not the underlying records.'}
               </p>
               <div className="mt-3">
                 <ReferralQueue referrals={referrals} onChanged={load} />

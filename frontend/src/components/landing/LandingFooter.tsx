@@ -72,7 +72,7 @@ export function LandingFooter() {
             <span className="footer-pill flex items-center gap-2 rounded-full border border-ice/10 bg-white/[0.04] px-3.5 py-1.5">
               <span className="footer-pill-dots" aria-hidden />
               <span className="font-mono text-[9px] tracking-[0.14em] text-ice/55 uppercase">
-                mood pulse
+                voice support
               </span>
             </span>
             <span className="footer-pill flex items-center gap-2 rounded-full border border-ice/10 bg-white/[0.04] px-3.5 py-1.5">

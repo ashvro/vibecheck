@@ -12,6 +12,7 @@ model User {
   email        String          @unique
   passwordHash String
   name         String
+  vibeTag      String?         @unique
   role         String          @default("student")
   avatar       String?
   major        String?
@@ -102,8 +103,6 @@ model CheckIn {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   mood      String
   text      String?
-  label     String?
-  score     Float?
   createdAt DateTime @default(now())
 }
 
@@ -117,12 +116,6 @@ model ChatMessage {
   content   String
   intent    String?
   riskLevel String?
-  label     String?
-  score     Float?
-  /// Provenance of `score`: which scorer produced it and the evidence behind it.
-  sentimentSource     String?
-  sentimentConfidence Float?
-  sentimentDetail     String?
   /// Retrieved textbook passages that grounded this reply (JSON array), so the
   /// source behind an academic answer can be shown and verified after the fact.
   sources   String?
@@ -135,7 +128,6 @@ model ChatSession {
   user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   title          String        @default("New chat")
   intent         String?
-  sentimentScore Float?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   messages       ChatMessage[]

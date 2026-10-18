@@ -1,7 +1,6 @@
-const ELEVENLABS_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
-
+const ELEVENLABS_URL = 'https://api.elevenlabs.io/v1'
 const ELEVENLABS_MODEL = process.env.ELEVENLABS_VOICE_MODEL || 'eleven_flash_v2_5'
-const ELEVENLABS_VOICE = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM'
+const ELEVENLABS_VOICE = process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'
 
 /**
  * Resolves the configured neural TTS provider, or null when the deployment
@@ -16,17 +15,39 @@ function isAbortError(err) {
   return err?.name === 'AbortError'
 }
 
+export async function listVoices({ signal } = {}) {
+  const provider = ttsProvider()
+  if (!provider) return []
+  if (provider === 'elevenlabs') {
+    const res = await fetch(`${ELEVENLABS_URL}/voices`, {
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+      signal,
+    })
+    if (!res.ok) return []
+    const data = await res.json().catch(() => ({}))
+    const voices = Array.isArray(data?.voices) ? data.voices : []
+    return voices.map((v) => ({
+      id: v.voice_id || v.voiceId || v.id,
+      name: v.name,
+      preview_url: v.preview_url || v.previewUrl || null,
+      labels: v.labels || {},
+    }))
+  }
+  return []
+}
+
 /**
  * Streams synthesized speech for a single sentence. Returns a Response whose
  * body is the audio payload, so the caller can relay it without buffering.
  */
-export async function synthesizeSpeech({ text, signal }) {
+export async function synthesizeSpeech({ text, voiceId, signal }) {
   const provider = ttsProvider()
   if (!provider) throw Object.assign(new Error('No TTS provider configured'), { status: 501 })
   if (!text?.trim()) throw Object.assign(new Error('No text to synthesize'), { status: 400 })
 
   if (provider === 'elevenlabs') {
-    const res = await fetch(`${ELEVENLABS_URL}/${ELEVENLABS_VOICE}/stream`, {
+    const voice = voiceId || ELEVENLABS_VOICE
+    const res = await fetch(`${ELEVENLABS_URL}/text-to-speech/${voice}/stream`, {
       method: 'POST',
       signal,
       headers: {
@@ -38,9 +59,9 @@ export async function synthesizeSpeech({ text, signal }) {
         text: text.trim(),
         model_id: ELEVENLABS_MODEL,
         voice_settings: {
-          stability: 0.4,
-          similarity_boost: 0.75,
-          style: 0.2,
+          stability: 0.36,
+          similarity_boost: 0.8,
+          style: 0.5,
           use_speaker_boost: true,
         },
       }),

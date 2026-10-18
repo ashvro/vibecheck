@@ -4,24 +4,18 @@
  * Every route here goes through src/analytics/scope.js. There is exactly one
  * risk model in the product - the trained one in src/ml - so the numbers a
  * student, a teacher and an admin see all come from the same predictor.
- *
- * Wellbeing (mental-health chat sentiment) is treated as sensitive: a teacher
- * never receives an individual's score, only course aggregates and a referral
- * action. Admins can resolve referrals, so they are the only staff role that
- * can see individual scores, and every read is audited.
  */
 
 import { Router } from 'express'
 import { prisma } from '../prisma.js'
 import { factorWeights } from '../data/store.js'
 import { getModelInfo, predictRisk } from '../ml/predictor.js'
-import { buildFeatureRows, sentimentByUser } from '../ml/liveData.js'
+import { buildFeatureRows } from '../ml/liveData.js'
 import { requireAuth } from '../middleware/auth.js'
 import {
   ROLE,
   roleOf,
   isAdmin,
-  canSeeWellbeing,
   scopedEnrollmentWhere,
   scopedStudentIds,
   scopedCourseIds,
@@ -53,7 +47,7 @@ analyticsRoutes.get('/summary', async (req, res, next) => {
     // Students see their own participation, not platform-wide totals.
     const [postWhere, clubWhere] =
       role === ROLE.STUDENT
-        ? [{ userId: uid }, { members: { some: { userId: uid } } }]
+        ? [{ ownerId: uid }, { memberships: { some: { userId: uid } } }]
         : [{}, {}]
 
     const [posts, clubs] = await Promise.all([
@@ -142,8 +136,6 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
       orderBy: { id: 'asc' },
     })
 
-    const userIds = [...new Set(enrollments.map((e) => e.userId))]
-    const sentiment = await sentimentByUser({ userIds })
     const students = new Map()
     for (const u of await prisma.user.findMany({ where: { id: { in: studentIds } }, select: { id: true, name: true } })) {
       students.set(u.id, u)
@@ -169,19 +161,14 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
     const featureRows = await buildFeatureRows({ allUsers: true })
     const studentRisk = new Map()
     for (const f of featureRows) {
-      studentRisk.set(f.userId, predictRisk({ sentiment: f.sentiment, attendance: f.attendance, cgpa: f.cgpa }))
+      studentRisk.set(f.userId, predictRisk({ attendance: f.attendance, cgpa: f.cgpa }))
     }
 
     const rows = enrollments.map((e) => {
       const marks = marksOf(e)
       const p =
         studentRisk.get(e.userId) ??
-        predictRisk({ sentiment: sentiment.get(e.userId) ?? null, attendance: e.attendance, cgpa: marks == null ? null : marks / 10 })
-      const wellbeing = sentiment.get(e.userId) ?? null
-      const showWellbeing = canSeeWellbeing(user, e.userId)
-      // Guard the rounding: Math.round(null * 100) is 0, which would report a
-      // student with no sentiment data as the worst possible score.
-      const wellbeingValue = showWellbeing && wellbeing != null ? Math.round(wellbeing * 100) : null
+        predictRisk({ attendance: e.attendance, cgpa: marks == null ? null : marks / 10 })
 
       const row = {
         enrollmentId: e.id,
@@ -202,9 +189,6 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
         confidence: p.confidence,
         imputed: p.imputed,
         dataComplete: p.imputed.length === 0,
-        // Hidden for teachers: they get the aggregate below plus a referral.
-        wellbeing: wellbeingValue,
-        wellbeingVisible: wellbeingValue != null,
         referralOpen: referredKeys.has(`${e.userId}:${e.course.id}`),
       }
       byEnrollment.set(e.id, row)
@@ -213,11 +197,6 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
 
     // Course roll-up. Teachers need the shape of their own cohort even though
     // they cannot see the individuals behind it.
-    //
-    // The well-being aggregate is built from the raw sentiment map, NOT from
-    // the per-row `wellbeing` value, because that value is withheld from
-    // teachers. Deriving the average from the withheld field would leave every
-    // teacher staring at "no data" even when their students have check-ins.
     const courseMap = new Map()
     for (const e of enrollments) {
       if (!courseMap.has(e.course.id)) {
@@ -231,8 +210,6 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
           attendanceN: 0,
           marksSum: 0,
           marksN: 0,
-          wellbeingSum: 0,
-          wellbeingN: 0,
         })
       }
       const c = courseMap.get(e.course.id)
@@ -242,8 +219,6 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
       if (row && (row.risk === 'High' || row.risk === 'Medium')) c.atRisk += 1
       if (e.attendance != null) { c.attendanceSum += e.attendance; c.attendanceN += 1 }
       if (marks != null) { c.marksSum += marks; c.marksN += 1 }
-      const s = sentiment.get(e.userId)
-      if (s != null) { c.wellbeingSum += s * 100; c.wellbeingN += 1 }
     }
     const courses = [...courseMap.values()].map((c) => ({
       id: c.id,
@@ -253,23 +228,10 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
       unassigned: c.unassigned,
       avgAttendance: c.attendanceN ? Math.round(c.attendanceSum / c.attendanceN) : null,
       avgMarks: c.marksN ? Math.round(c.marksSum / c.marksN) : null,
-      // Teachers see this number; it is the cohort average, not a person.
-      avgWellbeing: c.wellbeingN ? Math.round(c.wellbeingSum / c.wellbeingN) : null,
-      wellbeingSample: c.wellbeingN,
     }))
 
     const counts = { Low: 0, Medium: 0, High: 0 }
     for (const r of rows) counts[r.risk] += 1
-
-    // Cohort average, also from the raw map so teachers get a real number.
-    // Averaging the withheld per-row value would always come out empty.
-    const scores = enrollments
-      .map((e) => sentiment.get(e.userId))
-      .filter((s) => s != null)
-      .map((s) => s * 100)
-    const avgWellbeing = scores.length
-      ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length)
-      : null
 
     await logRosterAccess(user, studentIds, 'analytics.insights', await scopeLabel(user))
 
@@ -279,98 +241,8 @@ analyticsRoutes.get('/insights', async (req, res, next) => {
       students: studentIds.length,
       rows: rows.sort((a, b) => b.score - a.score),
       courses: courses.sort((a, b) => b.atRisk - a.atRisk),
-      avgWellbeing,
-      wellbeingSample: scores.length,
-      canSeeIndividualWellbeing: role === ROLE.ADMIN,
       canResolveReferrals: role === ROLE.ADMIN,
       openReferrals: referrals.filter((r) => r.status === 'open').length,
-    })
-  } catch (err) {
-    next(err)
-  }
-})
-
-/* ------------------------------------------------------------------ *
- * /wellbeing - aggregate sentiment trend, always non-identifying.
- * ------------------------------------------------------------------ */
-analyticsRoutes.get('/wellbeing', async (req, res, next) => {
-  try {
-    const user = req.user
-    const role = roleOf(user)
-    const studentIds = await scopedStudentIds(user)
-    if (!studentIds.length) {
-      return res.json({ average: null, averagePct: null, messages: 0, sessions: 0, weeks: [], series: [], scope: await scopeLabel(user) })
-    }
-
-    // Well-being is the aggregate of per-session scores. A session score is a
-    // recency-weighted mean of that session's mental-health turns (see
-    // recomputeSessionSentiment in assistant.routes.js), so the % shown here is
-    // exactly the average shown beside each conversation in the assistant.
-    const sessionRows = await prisma.chatSession.findMany({
-      where: { userId: { in: studentIds }, sentimentScore: { not: null } },
-      select: { userId: true, sentimentScore: true, updatedAt: true },
-      orderBy: { updatedAt: 'asc' },
-    })
-
-    const scores = sessionRows.map((s) => s.sentimentScore)
-    const average = scores.length
-      ? Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 100) / 100
-      : null
-
-    const now = new Date()
-    const weeks = []
-    for (let w = 5; w >= 0; w -= 1) {
-      const start = new Date(now.getTime())
-      start.setDate(start.getDate() - (w + 1) * 7)
-      const end = new Date(now.getTime())
-      end.setDate(end.getDate() - w * 7)
-      const inWeek = sessionRows.filter((r) => r.updatedAt >= start && r.updatedAt < end)
-      weeks.push({
-        week: `W${6 - w}`,
-        count: inWeek.length,
-        sentiment: inWeek.length
-          ? Math.round((inWeek.reduce((s, r) => s + r.sentimentScore, 0) / inWeek.length) * 100)
-          : null,
-      })
-    }
-
-    // The chart's x-axis. A student sees their own session-by-session scores,
-    // which is what they actually recognise; staff get the weekly cohort
-    // average, which identifies nobody because it never drops below the group.
-    let series
-    if (role === ROLE.STUDENT) {
-      series = sessionRows
-        .filter((s) => s.userId === user.id)
-        .slice(-12)
-        .map((s) => ({
-          label: new Date(s.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-          value: Math.round(s.sentimentScore * 100),
-        }))
-    } else {
-      series = weeks.map((w) => ({ label: w.week, value: w.sentiment }))
-    }
-
-    // How many well-being turns the sessions are built from. Shown as the
-    // supporting sample size, not scored itself.
-    const messages = await prisma.chatMessage.count({
-      where: { userId: { in: studentIds }, role: 'user', score: { not: null } },
-    })
-
-    // A teacher reading their cohort's wellbeing is exactly the access we
-    // want attributable, so it is recorded against the cohort rather than
-    // against each student.
-    if (role !== ROLE.STUDENT) {
-      await logAccess({ actor: user, action: 'analytics.wellbeing', scope: await scopeLabel(user) })
-    }
-
-    res.json({
-      average,
-      averagePct: average != null ? Math.round(average * 100) : null,
-      messages,
-      sessions: sessionRows.length,
-      weeks,
-      series,
-      scope: await scopeLabel(user),
     })
   } catch (err) {
     next(err)
@@ -385,8 +257,6 @@ analyticsRoutes.get('/model', async (req, res, next) => {
     if (!isAdmin(req.user)) return res.status(403).json({ error: 'Admins only' })
     const info = getModelInfo()
 
-    const studentIds = await scopedStudentIds(req.user)
-    const sentiment = await sentimentByUser({ userIds: studentIds })
     const enrollments = await prisma.enrollment.findMany({ select: { userId: true, attendance: true, ia1: true, ia2: true } })
 
     let complete = 0
@@ -395,7 +265,7 @@ analyticsRoutes.get('/model', async (req, res, next) => {
       const key = e.userId
       if (seen.has(key)) continue
       seen.add(key)
-      if (e.attendance != null && e.ia1 != null && e.ia2 != null && sentiment.has(e.userId)) complete += 1
+      if (e.attendance != null && e.ia1 != null && e.ia2 != null) complete += 1
     }
 
     await logAccess({ actor: req.user, action: 'analytics.model' })

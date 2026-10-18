@@ -21,7 +21,6 @@ const confusion = new Map()
 
 for (const row of ref.rows) {
   const out = predictRisk({
-    sentiment: row.sentimentscore,
     attendance: row.attendance_percent,
     cgpa: row.marks_cgpa,
   })
@@ -31,7 +30,7 @@ for (const row of ref.rows) {
     if (mismatches <= 10) {
       console.error(
         `MISMATCH ${row.username}: python=${row.expected} js=${out.risk} ` +
-          `(sent=${row.sentimentscore} att=${row.attendance_percent} cgpa=${row.marks_cgpa})`,
+          `(att=${row.attendance_percent} cgpa=${row.marks_cgpa})`,
       )
     }
   }
