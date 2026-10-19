@@ -57,13 +57,13 @@ function initials(name: string) {
 }
 
 /**
- * Category accents are authored for the dark stage. In light mode the theme
- * lowers `--accent-ink-weight`, mixing the accent toward a deep plum so it stays
- * legible on lilac while keeping its category hue. Dark mode leaves it at 100%
- * (i.e. the accent untouched).
+ * Club category accents come from data and were authored for the dark stage.
+ * A theme can re-balance them via `--accent-ink-weight` / `--accent-ink-mix`
+ * (the violet theme lifts them toward a pale lavender) while keeping their
+ * category hue. Dark mode leaves the weight at 100% — the accent untouched.
  */
 function accentInk(color: string) {
-  return `color-mix(in oklab, ${color} var(--accent-ink-weight, 100%), #2f2350)`
+  return `color-mix(in oklab, ${color} var(--accent-ink-weight, 100%), var(--accent-ink-mix, transparent))`
 }
 
 function parseClub(raw: Record<string, unknown>): Club {

@@ -44,8 +44,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // animated colours change in the same frame — no half-swapped state.
     root.classList.add('theme-switching')
     root.classList.toggle('theme-light', mode === 'light')
-    // Lets native widgets (scrollbars, date pickers, autofill) follow the theme.
-    root.style.colorScheme = mode
+    // Both themes are dark UIs (the "light" one is deep violet), so native
+    // widgets — scrollbars, date pickers, autofill — stay dark either way.
+    root.style.colorScheme = 'dark'
     void root.offsetWidth // flush the new colours while transitions are off
     const stop = () => root.classList.remove('theme-switching')
     const raf = requestAnimationFrame(stop)

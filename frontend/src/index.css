@@ -42,9 +42,10 @@
      - `:root`       → the default, dark everywhere
      - `.theme-dark` → re-shadows the light overrides on a subtree, so the
                        marketing / auth pages stay dark while the app is lit
-   `.theme-light` is set on <html> by the theme toggle and swaps in a lighter
-   tint of the same plum / ice / violet family. Tailwind utilities compile to
-   `var(--color-*)`, so redefining the tokens reskins every tab at once.
+   `.theme-light` is set on <html> by the theme toggle and swaps in a deeper
+   violet cut of the same plum / ice / violet family. Tailwind utilities
+   compile to `var(--color-*)`, so redefining the tokens reskins every tab at
+   once.
    -------------------------------------------------------------------------- */
 :root,
 .theme-dark {
@@ -134,91 +135,94 @@
   --chart-cursor: rgba(148, 163, 184, 0.06);
 }
 
-/* Light theme — "daylight purple": the same plum / ice / violet stage with
-   the violet turned up. Surfaces are lilac rather than white and the glass is
-   purple-tinted, so light mode reads as the dark gradient lit up rather than
-   as a pale page with purple accents. */
+/* Light theme — "deep violet": the dark stage pushed toward a saturated
+   violet, with the surfaces lifted just enough to read as purple rather than
+   black. It stays a dark UI on purpose: a mid-tone purple cannot hold good
+   contrast for either dark or light text, and a bright page is what hurt the
+   eyes. Text is pale lavender, matched to the violet surfaces. */
 .theme-light {
-  color-scheme: light;
+  /* Accent aliases (dashboard still uses teal-* class names) */
+  --color-teal-soft: #a294c9;
+  --color-teal: #cbbcf0;
+  --color-teal-dark: #e2d7fb;
+  --color-slate-blue: #ab97d6;
+  --color-emerald-soft: #9db8a8;
+  --color-amber-gentle: #d4b896;
 
-  --color-teal-soft: #58428a;
-  --color-teal: #5f3cb0;
-  --color-teal-dark: #4a2a94;
-  --color-slate-blue: #4d3b7a;
-  --color-emerald-soft: #2f6349;
-  --color-amber-gentle: #7d4f1e;
+  /* Surfaces — deep violet */
+  --color-bg: #3b3160;
+  --color-surface: #463a72;
+  --color-surface-2: #52447f;
+  --color-ink: #ede7fb;
+  --color-muted: #b6a9d8;
+  --color-line: #4f4277;
 
-  --color-bg: #ddcdf3;
-  --color-surface: #e9ddf8;
-  --color-surface-2: #cdb9e8;
-  --color-ink: #2a1f42;
-  --color-muted: #54477a;
-  --color-line: #c2ade0;
+  /* Brand tokens used across landing + app */
+  --color-thaw: #3b3160;
+  --color-thaw-deep: #312852;
+  --color-thaw-lift: #463a72;
+  --color-ice: #cbbcf0;
+  --color-ice-dim: #a294c9;
+  --color-ice-bright: #e2d7fb;
+  --color-frost: #ede7fb;
+  --color-violet: #9a78f6;
+  --color-violet-soft: #cbbcf0;
+  --color-violet-deep: #5b21b6;
 
-  --color-thaw: #ddcdf3;
-  --color-thaw-deep: #d0bdec;
-  --color-thaw-lift: #e9ddf8;
-  --color-ice: #5f3cb0;
-  --color-ice-dim: #7a68b2;
-  --color-ice-bright: #4a2a94;
-  --color-frost: #241a3c;
-  --color-violet: #6d3ef0;
-  --color-violet-soft: #4c2fa4;
-  --color-violet-deep: #3f1878;
-
-  /* The violet ambient wash is the whole point of this theme — keep it strong. */
-  --body-glow-1: radial-gradient(ellipse 78% 52% at 88% -12%, rgba(139, 92, 246, 0.42), transparent 60%);
-  --body-glow-2: radial-gradient(ellipse 62% 52% at -6% 106%, rgba(124, 58, 237, 0.34), transparent 58%);
-  --body-glow-3: radial-gradient(ellipse 58% 46% at 44% 38%, rgba(184, 164, 224, 0.3), transparent 70%);
-  --frost-glow-1: radial-gradient(ellipse 78% 52% at 80% 0%, rgba(139, 92, 246, 0.32), transparent 60%);
-  --frost-glow-2: radial-gradient(ellipse 62% 46% at 10% 100%, rgba(124, 58, 237, 0.26), transparent 58%);
-  --selection-bg: rgba(109, 62, 240, 0.34);
-  --selection-ink: #241a3c;
-  --scroll-thumb: rgba(96, 62, 176, 0.42);
-  --scroll-thumb-grad: linear-gradient(180deg, rgba(96, 62, 176, 0.42), rgba(139, 92, 246, 0.36));
-  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(72, 40, 143, 0.58), rgba(96, 62, 176, 0.48));
-  --focus-ring: rgba(96, 62, 176, 0.7);
-  --tint-subtle: rgba(96, 62, 176, 0.09);
-  --tint-subtle-strong: rgba(96, 62, 176, 0.16);
-  --glass-grad: linear-gradient(160deg, rgba(252, 248, 255, 0.66), rgba(233, 221, 250, 0.74) 55%, rgba(211, 193, 240, 0.68));
-  --glass-ice-grad: linear-gradient(160deg, rgba(250, 245, 255, 0.6), rgba(228, 215, 248, 0.72) 60%, rgba(206, 187, 238, 0.64));
-  --edge-strong: rgba(96, 62, 176, 0.26);
-  --edge-strong-top: rgba(255, 250, 255, 0.78);
-  --edge-ice: rgba(96, 62, 176, 0.3);
-  --edge-ice-top: rgba(255, 250, 255, 0.78);
-  --edge-hover: rgba(96, 62, 176, 0.5);
-  --depth-1: 0 1px 2px rgba(58, 40, 96, 0.12), 0 8px 20px -12px rgba(58, 40, 96, 0.3);
-  --depth-2: 0 1px 2px rgba(58, 40, 96, 0.14), 0 16px 34px -14px rgba(58, 40, 96, 0.34);
-  --depth-3: 0 2px 4px rgba(58, 40, 96, 0.16), 0 28px 56px -20px rgba(58, 40, 96, 0.4);
-  --glow-cta-ring: rgba(96, 62, 176, 0.36);
-  --glow-cta-ring-hot: rgba(96, 62, 176, 0.66);
+  /* The violet ambient wash, a touch stronger than the dark theme's so the
+     surface still reads as lit rather than flat. */
+  --body-glow-1: radial-gradient(ellipse 70% 45% at 85% -10%, rgba(139, 92, 246, 0.24), transparent 55%);
+  --body-glow-2: radial-gradient(ellipse 50% 40% at 0% 100%, rgba(184, 164, 224, 0.12), transparent 50%);
+  --body-glow-3: radial-gradient(ellipse 40% 30% at 50% 50%, rgba(91, 33, 182, 0.08), transparent 60%);
+  --frost-glow-1: radial-gradient(ellipse 70% 50% at 80% 0%, rgba(139, 92, 246, 0.18), transparent 55%);
+  --frost-glow-2: radial-gradient(ellipse 50% 40% at 10% 100%, rgba(184, 164, 224, 0.1), transparent 50%);
+  --selection-bg: rgba(203, 188, 240, 0.38);
+  --selection-ink: #2a2145;
+  --scroll-thumb: rgba(203, 188, 240, 0.3);
+  --scroll-thumb-grad: linear-gradient(180deg, rgba(203, 188, 240, 0.32), rgba(139, 92, 246, 0.24));
+  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(226, 215, 251, 0.5), rgba(139, 92, 246, 0.4));
+  --focus-ring: rgba(203, 188, 240, 0.6);
+  --tint-subtle: rgba(255, 255, 255, 0.045);
+  --tint-subtle-strong: rgba(255, 255, 255, 0.075);
+  --glass-grad: linear-gradient(160deg, rgba(88, 74, 136, 0.55), rgba(70, 58, 114, 0.72) 55%, rgba(59, 49, 96, 0.7));
+  --glass-ice-grad: linear-gradient(160deg, rgba(88, 74, 136, 0.46), rgba(59, 49, 96, 0.6) 60%, rgba(59, 49, 96, 0.48));
+  --edge-strong: rgba(203, 188, 240, 0.16);
+  --edge-strong-top: rgba(226, 215, 251, 0.24);
+  --edge-ice: rgba(203, 188, 240, 0.18);
+  --edge-ice-top: rgba(226, 215, 251, 0.28);
+  --edge-hover: rgba(203, 188, 240, 0.3);
+  --depth-1: 0 1px 2px rgba(12, 8, 24, 0.42), 0 8px 20px -12px rgba(12, 8, 24, 0.55);
+  --depth-2: 0 1px 2px rgba(12, 8, 24, 0.44), 0 16px 34px -14px rgba(12, 8, 24, 0.6);
+  --depth-3: 0 2px 4px rgba(12, 8, 24, 0.48), 0 28px 56px -20px rgba(12, 8, 24, 0.65);
+  --glow-cta-ring: rgba(203, 188, 240, 0.24);
+  --glow-cta-ring-hot: rgba(226, 215, 251, 0.58);
   --glow-cta-halo: rgba(139, 92, 246, 0.38);
-  --glow-cta-cast: rgba(58, 40, 96, 0.3);
-  --glow-hover-color: rgba(139, 92, 246, 0.5);
-  --shine-core: rgba(139, 92, 246, 0.14);
-  --shine-rim: rgba(139, 92, 246, 0.07);
-  --grid-line: rgba(96, 62, 176, 0.13);
-  --crystal-edge: rgba(79, 47, 156, 0.9);
-  --crystal-fill: linear-gradient(135deg, rgba(96, 62, 176, 0.55), transparent 60%);
-  --rail-grad: linear-gradient(180deg, rgba(211, 194, 240, 0.94), rgba(196, 175, 231, 0.97));
-  --rail-cast: 4px 0 28px -16px rgba(58, 40, 96, 0.34);
-  --rail-edge: rgba(96, 62, 176, 0.26);
-  --topbar-cast: 0 14px 34px -22px rgba(58, 40, 96, 0.38);
-  --hairline-a: rgba(79, 47, 156, 0.5);
-  --hairline-b: rgba(139, 92, 246, 0.44);
-  --accent-a: #6f4fc0;
-  --accent-b: #5b21b6;
-  --orb-a-fill: rgba(139, 92, 246, 0.34);
-  --orb-b-fill: rgba(124, 100, 200, 0.3);
-  --orb-c-fill: rgba(91, 33, 182, 0.2);
-  --aura-fill: rgba(139, 92, 246, 0.12);
-  --grain-opacity: 0.4;
-  --nav-glow-inset: inset 0 1px 0 rgba(255, 250, 255, 0.7);
-  --nav-glow-ring: 0 0 0 1px rgba(96, 62, 176, 0.26);
-  --nav-glow-cast: 0 10px 22px -12px rgba(96, 62, 176, 0.45);
-  --chart-tick: rgba(84, 71, 122, 0.9);
-  --chart-grid: rgba(96, 62, 176, 0.18);
-  --chart-cursor: rgba(96, 62, 176, 0.07);
+  --glow-cta-cast: rgba(12, 8, 24, 0.45);
+  --glow-hover-color: rgba(139, 92, 246, 0.6);
+  --shine-core: rgba(139, 92, 246, 0.18);
+  --shine-rim: rgba(226, 215, 251, 0.08);
+  --grid-line: rgba(203, 188, 240, 0.06);
+  --crystal-edge: rgba(226, 215, 251, 0.75);
+  --crystal-fill: linear-gradient(135deg, rgba(203, 188, 240, 0.45), transparent 60%);
+  --rail-grad: linear-gradient(180deg, rgba(70, 58, 114, 0.94), rgba(49, 40, 82, 0.97));
+  --rail-cast: 4px 0 28px -16px rgba(12, 8, 24, 0.75);
+  --rail-edge: rgba(203, 188, 240, 0.1);
+  --topbar-cast: 0 14px 34px -22px rgba(12, 8, 24, 0.8);
+  --hairline-a: rgba(226, 215, 251, 0.4);
+  --hairline-b: rgba(139, 92, 246, 0.35);
+  --accent-a: #e2d7fb;
+  --accent-b: #8b5cf6;
+  --orb-a-fill: rgba(139, 92, 246, 0.26);
+  --orb-b-fill: rgba(203, 188, 240, 0.15);
+  --orb-c-fill: rgba(91, 33, 182, 0.18);
+  --aura-fill: rgba(139, 92, 246, 0.1);
+  --grain-opacity: 0.5;
+  --nav-glow-inset: inset 0 1px 0 rgba(226, 215, 251, 0.16);
+  --nav-glow-ring: 0 0 0 1px rgba(203, 188, 240, 0.14);
+  --nav-glow-cast: 0 10px 22px -12px rgba(139, 92, 246, 0.5);
+  --chart-tick: rgba(182, 169, 216, 0.9);
+  --chart-grid: rgba(182, 169, 216, 0.14);
+  --chart-cursor: rgba(182, 169, 216, 0.07);
 }
 
 /* Themed subtle fill for dashboard cards (replaces bg-white/[0.03]). */
@@ -232,56 +236,34 @@
 
 /* --------------------------------------------------------------------------
    Light-mode legibility
-   The dark UI expresses hierarchy by dimming with a fixed alpha
-   (`text-ice/55`, `text-rose-400`…). Over a light surface those read too
-   faint, so inside the app shell they are re-pointed at stronger tones.
-   Scoped to `.app-shell` and kept at low specificity (`:where`) so the
-   landing / auth pages stay dark and hover states still brighten normally.
+   The violet stage is a dark UI, but it sits lighter than the dark theme's
+   near-black, so every alpha-dimmed `text-ice/NN` step loses a little
+   contrast. They are re-pointed a few points stronger to land at roughly the
+   same levels as dark mode. Kept at low specificity (`:where`) so hover
+   variants still brighten on top.
    -------------------------------------------------------------------------- */
 .theme-light .app-shell {
-  /* Warning / error accents that were tuned for a dark surface. */
-  --color-rose-300: #9f1239;
-  --color-rose-400: #be123c;
-  --color-rose-500: #be123c;
-  --color-red-300: #b91c1c;
-  --color-amber-400: #b45309;
-  --color-sky-400: #0369a1;
-  --color-violet-200: #5b21b6;
-
-  /* Category accents come from club data and were authored for the dark
-     stage. In daylight they are mixed toward a deep plum so they stay legible
-     while keeping their category hue (see `accentInk` in ClubsPage). */
-  --accent-ink-weight: 66%;
+  /* Club category accents come from data and were authored for the dark stage;
+     on the violet stage they are lifted toward a pale lavender so the chips
+     keep their hue but stay legible (see `accentInk` in ClubsPage). */
+  --accent-ink-weight: 72%;
+  --accent-ink-mix: #f2ecff;
 }
 
 @layer utilities {
-  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 44%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 56%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 64%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 76%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 81%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 85%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 88%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 90%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 92%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 94%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 96%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/85 { color: color-mix(in oklab, var(--color-ice) 98%, transparent); }
-
-  /* Keep the designed hover brightening explicit, so a hovered element always
-     lands on the full accent regardless of source order. */
-  :where(.theme-light) :where(.app-shell)
-    :is(
-      .text-ice\/40,
-      .text-ice\/45,
-      .text-ice\/50,
-      .text-ice\/55,
-      .text-ice\/60,
-      .text-ice\/70,
-      .text-ice\/80
-    ):hover {
-    color: var(--color-ice);
-  }
+  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 30%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/25 { color: color-mix(in oklab, var(--color-ice) 35%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 40%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 47%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 55%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 61%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 67%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 74%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 80%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 87%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 91%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 94%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/85 { color: color-mix(in oklab, var(--color-ice) 96%, transparent); }
 }
 
 /* --------------------------------------------------------------------------
