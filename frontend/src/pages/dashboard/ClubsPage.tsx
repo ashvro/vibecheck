@@ -56,6 +56,16 @@ function initials(name: string) {
     .toUpperCase()
 }
 
+/**
+ * Category accents are authored for the dark stage. In light mode the theme
+ * lowers `--accent-ink-weight`, mixing the accent toward a deep plum so it stays
+ * legible on lilac while keeping its category hue. Dark mode leaves it at 100%
+ * (i.e. the accent untouched).
+ */
+function accentInk(color: string) {
+  return `color-mix(in oklab, ${color} var(--accent-ink-weight, 100%), #2f2350)`
+}
+
 function parseClub(raw: Record<string, unknown>): Club {
   const tagsRaw = raw.tags
   let tags: string[] = []
@@ -433,7 +443,7 @@ export function ClubsPage() {
                     >
                       <span
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold"
-                        style={{ backgroundColor: `${club.accent}2e`, color: club.accent }}
+                        style={{ backgroundColor: `${club.accent}2e`, color: accentInk(club.accent) }}
                       >
                         {initials(club.name)}
                       </span>
@@ -452,7 +462,7 @@ export function ClubsPage() {
                           className="mt-1.5 inline-flex rounded-full border px-2 py-0.5 font-mono text-[8px] tracking-[0.14em] uppercase"
                           style={{
                             borderColor: `${club.accent}66`,
-                            color: club.accent,
+                            color: accentInk(club.accent),
                             background: `${club.accent}1f`,
                           }}
                         >
@@ -537,7 +547,7 @@ export function ClubsPage() {
                     <div className="flex items-center gap-3">
                       <span
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold"
-                        style={{ backgroundColor: `${club.accent}2e`, color: club.accent }}
+                        style={{ backgroundColor: `${club.accent}2e`, color: accentInk(club.accent) }}
                       >
                         {initials(club.name)}
                       </span>
@@ -626,7 +636,7 @@ export function ClubsPage() {
                     >
                       <span
                         className="flex h-12 w-12 items-center justify-center rounded-2xl text-sm font-bold"
-                        style={{ backgroundColor: `${categoryAccent[draftClub.category]}2e`, color: categoryAccent[draftClub.category] }}
+                        style={{ backgroundColor: `${categoryAccent[draftClub.category]}2e`, color: accentInk(categoryAccent[draftClub.category]) }}
                       >
                         {initials(draftClub.name || draftClub.category)}
                       </span>
@@ -781,7 +791,7 @@ export function ClubsPage() {
                   >
                     <span
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold"
-                      style={{ backgroundColor: `${club.accent}2e`, color: club.accent }}
+                      style={{ backgroundColor: `${club.accent}2e`, color: accentInk(club.accent) }}
                     >
                       {initials(club.name)}
                     </span>
@@ -800,7 +810,7 @@ export function ClubsPage() {
                         className="mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[8px] tracking-[0.14em] uppercase"
                         style={{
                           borderColor: `${club.accent}66`,
-                          color: club.accent,
+                          color: accentInk(club.accent),
                           background: `${club.accent}1f`,
                         }}
                       >

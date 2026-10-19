@@ -134,91 +134,91 @@
   --chart-cursor: rgba(148, 163, 184, 0.06);
 }
 
-/* Light theme — the same plum / ice / violet stage in daylight: lilac
-   surfaces instead of white, with the violet ambient light still clearly
-   visible through the glass so it reads as a lighter cut of the dark
-   gradient rather than a washed-out page. */
+/* Light theme — "daylight purple": the same plum / ice / violet stage with
+   the violet turned up. Surfaces are lilac rather than white and the glass is
+   purple-tinted, so light mode reads as the dark gradient lit up rather than
+   as a pale page with purple accents. */
 .theme-light {
   color-scheme: light;
 
-  --color-teal-soft: #6a5599;
-  --color-teal: #6b4ac0;
-  --color-teal-dark: #52329b;
-  --color-slate-blue: #5a4794;
-  --color-emerald-soft: #3f6f52;
-  --color-amber-gentle: #8a5a26;
+  --color-teal-soft: #58428a;
+  --color-teal: #5f3cb0;
+  --color-teal-dark: #4a2a94;
+  --color-slate-blue: #4d3b7a;
+  --color-emerald-soft: #2f6349;
+  --color-amber-gentle: #7d4f1e;
 
-  --color-bg: #e7e0f4;
-  --color-surface: #f5f1fc;
-  --color-surface-2: #ddd2f0;
+  --color-bg: #ddcdf3;
+  --color-surface: #e9ddf8;
+  --color-surface-2: #cdb9e8;
   --color-ink: #2a1f42;
-  --color-muted: #5e5382;
-  --color-line: #d2c7e9;
+  --color-muted: #54477a;
+  --color-line: #c2ade0;
 
-  --color-thaw: #e7e0f4;
-  --color-thaw-deep: #ded4f0;
-  --color-thaw-lift: #f5f1fc;
-  --color-ice: #6b4ac0;
-  --color-ice-dim: #7d68b5;
-  --color-ice-bright: #4f2f9c;
+  --color-thaw: #ddcdf3;
+  --color-thaw-deep: #d0bdec;
+  --color-thaw-lift: #e9ddf8;
+  --color-ice: #5f3cb0;
+  --color-ice-dim: #7a68b2;
+  --color-ice-bright: #4a2a94;
   --color-frost: #241a3c;
   --color-violet: #6d3ef0;
   --color-violet-soft: #4c2fa4;
   --color-violet-deep: #3f1878;
 
-  /* The ambient violet wash is deliberately kept visible in daylight. */
-  --body-glow-1: radial-gradient(ellipse 75% 50% at 88% -12%, rgba(139, 92, 246, 0.3), transparent 58%);
-  --body-glow-2: radial-gradient(ellipse 60% 50% at -5% 105%, rgba(124, 58, 237, 0.22), transparent 55%);
-  --body-glow-3: radial-gradient(ellipse 55% 45% at 45% 40%, rgba(184, 164, 224, 0.2), transparent 68%);
-  --frost-glow-1: radial-gradient(ellipse 75% 50% at 80% 0%, rgba(139, 92, 246, 0.22), transparent 58%);
-  --frost-glow-2: radial-gradient(ellipse 60% 45% at 10% 100%, rgba(124, 58, 237, 0.18), transparent 55%);
-  --selection-bg: rgba(139, 92, 246, 0.3);
+  /* The violet ambient wash is the whole point of this theme — keep it strong. */
+  --body-glow-1: radial-gradient(ellipse 78% 52% at 88% -12%, rgba(139, 92, 246, 0.42), transparent 60%);
+  --body-glow-2: radial-gradient(ellipse 62% 52% at -6% 106%, rgba(124, 58, 237, 0.34), transparent 58%);
+  --body-glow-3: radial-gradient(ellipse 58% 46% at 44% 38%, rgba(184, 164, 224, 0.3), transparent 70%);
+  --frost-glow-1: radial-gradient(ellipse 78% 52% at 80% 0%, rgba(139, 92, 246, 0.32), transparent 60%);
+  --frost-glow-2: radial-gradient(ellipse 62% 46% at 10% 100%, rgba(124, 58, 237, 0.26), transparent 58%);
+  --selection-bg: rgba(109, 62, 240, 0.34);
   --selection-ink: #241a3c;
-  --scroll-thumb: rgba(107, 74, 192, 0.4);
-  --scroll-thumb-grad: linear-gradient(180deg, rgba(107, 74, 192, 0.4), rgba(139, 92, 246, 0.32));
-  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(82, 50, 155, 0.55), rgba(107, 74, 192, 0.45));
-  --focus-ring: rgba(107, 74, 192, 0.65);
-  --tint-subtle: rgba(107, 74, 192, 0.07);
-  --tint-subtle-strong: rgba(107, 74, 192, 0.13);
-  --glass-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(246, 242, 254, 0.78) 55%, rgba(229, 221, 245, 0.72));
-  --glass-ice-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(242, 236, 252, 0.76) 60%, rgba(225, 216, 243, 0.7));
-  --edge-strong: rgba(107, 74, 192, 0.22);
-  --edge-strong-top: rgba(255, 255, 255, 0.85);
-  --edge-ice: rgba(107, 74, 192, 0.26);
-  --edge-ice-top: rgba(255, 255, 255, 0.85);
-  --edge-hover: rgba(107, 74, 192, 0.46);
-  --depth-1: 0 1px 2px rgba(58, 40, 96, 0.1), 0 8px 20px -12px rgba(58, 40, 96, 0.26);
-  --depth-2: 0 1px 2px rgba(58, 40, 96, 0.12), 0 16px 34px -14px rgba(58, 40, 96, 0.3);
-  --depth-3: 0 2px 4px rgba(58, 40, 96, 0.14), 0 28px 56px -20px rgba(58, 40, 96, 0.36);
-  --glow-cta-ring: rgba(107, 74, 192, 0.32);
-  --glow-cta-ring-hot: rgba(107, 74, 192, 0.62);
-  --glow-cta-halo: rgba(139, 92, 246, 0.3);
-  --glow-cta-cast: rgba(58, 40, 96, 0.26);
-  --glow-hover-color: rgba(139, 92, 246, 0.45);
-  --shine-core: rgba(139, 92, 246, 0.12);
-  --shine-rim: rgba(139, 92, 246, 0.06);
-  --grid-line: rgba(107, 74, 192, 0.1);
+  --scroll-thumb: rgba(96, 62, 176, 0.42);
+  --scroll-thumb-grad: linear-gradient(180deg, rgba(96, 62, 176, 0.42), rgba(139, 92, 246, 0.36));
+  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(72, 40, 143, 0.58), rgba(96, 62, 176, 0.48));
+  --focus-ring: rgba(96, 62, 176, 0.7);
+  --tint-subtle: rgba(96, 62, 176, 0.09);
+  --tint-subtle-strong: rgba(96, 62, 176, 0.16);
+  --glass-grad: linear-gradient(160deg, rgba(252, 248, 255, 0.66), rgba(233, 221, 250, 0.74) 55%, rgba(211, 193, 240, 0.68));
+  --glass-ice-grad: linear-gradient(160deg, rgba(250, 245, 255, 0.6), rgba(228, 215, 248, 0.72) 60%, rgba(206, 187, 238, 0.64));
+  --edge-strong: rgba(96, 62, 176, 0.26);
+  --edge-strong-top: rgba(255, 250, 255, 0.78);
+  --edge-ice: rgba(96, 62, 176, 0.3);
+  --edge-ice-top: rgba(255, 250, 255, 0.78);
+  --edge-hover: rgba(96, 62, 176, 0.5);
+  --depth-1: 0 1px 2px rgba(58, 40, 96, 0.12), 0 8px 20px -12px rgba(58, 40, 96, 0.3);
+  --depth-2: 0 1px 2px rgba(58, 40, 96, 0.14), 0 16px 34px -14px rgba(58, 40, 96, 0.34);
+  --depth-3: 0 2px 4px rgba(58, 40, 96, 0.16), 0 28px 56px -20px rgba(58, 40, 96, 0.4);
+  --glow-cta-ring: rgba(96, 62, 176, 0.36);
+  --glow-cta-ring-hot: rgba(96, 62, 176, 0.66);
+  --glow-cta-halo: rgba(139, 92, 246, 0.38);
+  --glow-cta-cast: rgba(58, 40, 96, 0.3);
+  --glow-hover-color: rgba(139, 92, 246, 0.5);
+  --shine-core: rgba(139, 92, 246, 0.14);
+  --shine-rim: rgba(139, 92, 246, 0.07);
+  --grid-line: rgba(96, 62, 176, 0.13);
   --crystal-edge: rgba(79, 47, 156, 0.9);
-  --crystal-fill: linear-gradient(135deg, rgba(107, 74, 192, 0.5), transparent 60%);
-  --rail-grad: linear-gradient(180deg, rgba(226, 218, 243, 0.94), rgba(209, 198, 234, 0.97));
-  --rail-cast: 4px 0 28px -16px rgba(58, 40, 96, 0.3);
-  --rail-edge: rgba(107, 74, 192, 0.22);
-  --topbar-cast: 0 14px 34px -22px rgba(58, 40, 96, 0.34);
-  --hairline-a: rgba(79, 47, 156, 0.45);
-  --hairline-b: rgba(139, 92, 246, 0.38);
-  --accent-a: #7a5cc9;
+  --crystal-fill: linear-gradient(135deg, rgba(96, 62, 176, 0.55), transparent 60%);
+  --rail-grad: linear-gradient(180deg, rgba(211, 194, 240, 0.94), rgba(196, 175, 231, 0.97));
+  --rail-cast: 4px 0 28px -16px rgba(58, 40, 96, 0.34);
+  --rail-edge: rgba(96, 62, 176, 0.26);
+  --topbar-cast: 0 14px 34px -22px rgba(58, 40, 96, 0.38);
+  --hairline-a: rgba(79, 47, 156, 0.5);
+  --hairline-b: rgba(139, 92, 246, 0.44);
+  --accent-a: #6f4fc0;
   --accent-b: #5b21b6;
-  --orb-a-fill: rgba(139, 92, 246, 0.28);
-  --orb-b-fill: rgba(124, 100, 200, 0.24);
-  --orb-c-fill: rgba(91, 33, 182, 0.16);
-  --aura-fill: rgba(139, 92, 246, 0.1);
+  --orb-a-fill: rgba(139, 92, 246, 0.34);
+  --orb-b-fill: rgba(124, 100, 200, 0.3);
+  --orb-c-fill: rgba(91, 33, 182, 0.2);
+  --aura-fill: rgba(139, 92, 246, 0.12);
   --grain-opacity: 0.4;
-  --nav-glow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  --nav-glow-ring: 0 0 0 1px rgba(107, 74, 192, 0.22);
-  --nav-glow-cast: 0 10px 22px -12px rgba(107, 74, 192, 0.4);
-  --chart-tick: rgba(94, 83, 130, 0.9);
-  --chart-grid: rgba(107, 74, 192, 0.16);
-  --chart-cursor: rgba(107, 74, 192, 0.06);
+  --nav-glow-inset: inset 0 1px 0 rgba(255, 250, 255, 0.7);
+  --nav-glow-ring: 0 0 0 1px rgba(96, 62, 176, 0.26);
+  --nav-glow-cast: 0 10px 22px -12px rgba(96, 62, 176, 0.45);
+  --chart-tick: rgba(84, 71, 122, 0.9);
+  --chart-grid: rgba(96, 62, 176, 0.18);
+  --chart-cursor: rgba(96, 62, 176, 0.07);
 }
 
 /* Themed subtle fill for dashboard cards (replaces bg-white/[0.03]). */
@@ -247,21 +247,26 @@
   --color-amber-400: #b45309;
   --color-sky-400: #0369a1;
   --color-violet-200: #5b21b6;
+
+  /* Category accents come from club data and were authored for the dark
+     stage. In daylight they are mixed toward a deep plum so they stay legible
+     while keeping their category hue (see `accentInk` in ClubsPage). */
+  --accent-ink-weight: 66%;
 }
 
 @layer utilities {
-  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 40%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 52%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 60%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 73%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 79%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 83%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 86%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 89%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 91%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 93%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 95%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/85 { color: color-mix(in oklab, var(--color-ice) 97%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 44%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 56%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 64%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 76%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 81%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 85%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 88%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 90%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 92%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 94%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 96%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/85 { color: color-mix(in oklab, var(--color-ice) 98%, transparent); }
 
   /* Keep the designed hover brightening explicit, so a hovered element always
      lands on the full accent regardless of source order. */
