@@ -134,87 +134,91 @@
   --chart-cursor: rgba(148, 163, 184, 0.06);
 }
 
-/* Light theme — a lighter tint of the same plum / ice / violet family. */
+/* Light theme — the same plum / ice / violet stage in daylight: lilac
+   surfaces instead of white, with the violet ambient light still clearly
+   visible through the glass so it reads as a lighter cut of the dark
+   gradient rather than a washed-out page. */
 .theme-light {
   color-scheme: light;
 
   --color-teal-soft: #6a5599;
-  --color-teal: #6f52bd;
-  --color-teal-dark: #57389f;
-  --color-slate-blue: #5f4b96;
-  --color-emerald-soft: #4a7a5b;
-  --color-amber-gentle: #93652d;
+  --color-teal: #6b4ac0;
+  --color-teal-dark: #52329b;
+  --color-slate-blue: #5a4794;
+  --color-emerald-soft: #3f6f52;
+  --color-amber-gentle: #8a5a26;
 
-  --color-bg: #f5f2fa;
-  --color-surface: #fdfcff;
-  --color-surface-2: #ece7f5;
-  --color-ink: #241c33;
-  --color-muted: #6d6488;
-  --color-line: #e0d9ef;
+  --color-bg: #e7e0f4;
+  --color-surface: #f5f1fc;
+  --color-surface-2: #ddd2f0;
+  --color-ink: #2a1f42;
+  --color-muted: #5e5382;
+  --color-line: #d2c7e9;
 
-  --color-thaw: #f5f2fa;
-  --color-thaw-deep: #ece6f5;
-  --color-thaw-lift: #fdfcff;
-  --color-ice: #6f52bd;
-  --color-ice-dim: #8574b3;
-  --color-ice-bright: #57389f;
-  --color-frost: #1d1530;
+  --color-thaw: #e7e0f4;
+  --color-thaw-deep: #ded4f0;
+  --color-thaw-lift: #f5f1fc;
+  --color-ice: #6b4ac0;
+  --color-ice-dim: #7d68b5;
+  --color-ice-bright: #4f2f9c;
+  --color-frost: #241a3c;
   --color-violet: #6d3ef0;
   --color-violet-soft: #4c2fa4;
   --color-violet-deep: #3f1878;
 
-  --body-glow-1: radial-gradient(ellipse 70% 45% at 85% -10%, rgba(139, 92, 246, 0.1), transparent 55%);
-  --body-glow-2: radial-gradient(ellipse 50% 40% at 0% 100%, rgba(125, 98, 190, 0.08), transparent 50%);
-  --body-glow-3: radial-gradient(ellipse 40% 30% at 50% 50%, rgba(91, 33, 182, 0.05), transparent 60%);
-  --frost-glow-1: radial-gradient(ellipse 70% 50% at 80% 0%, rgba(139, 92, 246, 0.08), transparent 55%);
-  --frost-glow-2: radial-gradient(ellipse 50% 40% at 10% 100%, rgba(125, 98, 190, 0.07), transparent 50%);
-  --selection-bg: rgba(139, 92, 246, 0.22);
-  --selection-ink: #241c33;
-  --scroll-thumb: rgba(109, 81, 184, 0.35);
-  --scroll-thumb-grad: linear-gradient(180deg, rgba(109, 81, 184, 0.35), rgba(139, 92, 246, 0.28));
-  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(87, 56, 159, 0.5), rgba(109, 81, 184, 0.4));
-  --focus-ring: rgba(109, 81, 184, 0.6);
-  --tint-subtle: rgba(109, 81, 184, 0.05);
-  --tint-subtle-strong: rgba(109, 81, 184, 0.09);
-  --glass-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.82), rgba(250, 248, 254, 0.86) 55%, rgba(244, 241, 252, 0.8));
-  --glass-ice-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.78), rgba(250, 248, 253, 0.85) 60%, rgba(245, 242, 252, 0.75));
-  --edge-strong: rgba(109, 81, 184, 0.16);
-  --edge-strong-top: rgba(255, 255, 255, 0.95);
-  --edge-ice: rgba(109, 81, 184, 0.2);
-  --edge-ice-top: rgba(255, 255, 255, 0.95);
-  --edge-hover: rgba(109, 81, 184, 0.4);
-  --depth-1: 0 1px 2px rgba(76, 58, 110, 0.08), 0 8px 20px -12px rgba(76, 58, 110, 0.2);
-  --depth-2: 0 1px 2px rgba(76, 58, 110, 0.08), 0 16px 34px -14px rgba(76, 58, 110, 0.24);
-  --depth-3: 0 2px 4px rgba(76, 58, 110, 0.1), 0 28px 56px -20px rgba(76, 58, 110, 0.28);
-  --glow-cta-ring: rgba(109, 81, 184, 0.3);
-  --glow-cta-ring-hot: rgba(109, 81, 184, 0.6);
-  --glow-cta-halo: rgba(139, 92, 246, 0.25);
-  --glow-cta-cast: rgba(76, 58, 110, 0.22);
-  --glow-hover-color: rgba(139, 92, 246, 0.4);
-  --shine-core: rgba(139, 92, 246, 0.09);
-  --shine-rim: rgba(139, 92, 246, 0.05);
-  --grid-line: rgba(109, 81, 184, 0.07);
-  --crystal-edge: rgba(87, 56, 159, 0.9);
-  --crystal-fill: linear-gradient(135deg, rgba(109, 81, 184, 0.45), transparent 60%);
-  --rail-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 236, 249, 0.97));
-  --rail-cast: 4px 0 28px -16px rgba(76, 58, 110, 0.25);
-  --rail-edge: rgba(109, 81, 184, 0.16);
-  --topbar-cast: 0 14px 34px -22px rgba(76, 58, 110, 0.3);
-  --hairline-a: rgba(87, 56, 159, 0.4);
-  --hairline-b: rgba(139, 92, 246, 0.3);
-  --accent-a: #8a6bd4;
+  /* The ambient violet wash is deliberately kept visible in daylight. */
+  --body-glow-1: radial-gradient(ellipse 75% 50% at 88% -12%, rgba(139, 92, 246, 0.3), transparent 58%);
+  --body-glow-2: radial-gradient(ellipse 60% 50% at -5% 105%, rgba(124, 58, 237, 0.22), transparent 55%);
+  --body-glow-3: radial-gradient(ellipse 55% 45% at 45% 40%, rgba(184, 164, 224, 0.2), transparent 68%);
+  --frost-glow-1: radial-gradient(ellipse 75% 50% at 80% 0%, rgba(139, 92, 246, 0.22), transparent 58%);
+  --frost-glow-2: radial-gradient(ellipse 60% 45% at 10% 100%, rgba(124, 58, 237, 0.18), transparent 55%);
+  --selection-bg: rgba(139, 92, 246, 0.3);
+  --selection-ink: #241a3c;
+  --scroll-thumb: rgba(107, 74, 192, 0.4);
+  --scroll-thumb-grad: linear-gradient(180deg, rgba(107, 74, 192, 0.4), rgba(139, 92, 246, 0.32));
+  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(82, 50, 155, 0.55), rgba(107, 74, 192, 0.45));
+  --focus-ring: rgba(107, 74, 192, 0.65);
+  --tint-subtle: rgba(107, 74, 192, 0.07);
+  --tint-subtle-strong: rgba(107, 74, 192, 0.13);
+  --glass-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(246, 242, 254, 0.78) 55%, rgba(229, 221, 245, 0.72));
+  --glass-ice-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(242, 236, 252, 0.76) 60%, rgba(225, 216, 243, 0.7));
+  --edge-strong: rgba(107, 74, 192, 0.22);
+  --edge-strong-top: rgba(255, 255, 255, 0.85);
+  --edge-ice: rgba(107, 74, 192, 0.26);
+  --edge-ice-top: rgba(255, 255, 255, 0.85);
+  --edge-hover: rgba(107, 74, 192, 0.46);
+  --depth-1: 0 1px 2px rgba(58, 40, 96, 0.1), 0 8px 20px -12px rgba(58, 40, 96, 0.26);
+  --depth-2: 0 1px 2px rgba(58, 40, 96, 0.12), 0 16px 34px -14px rgba(58, 40, 96, 0.3);
+  --depth-3: 0 2px 4px rgba(58, 40, 96, 0.14), 0 28px 56px -20px rgba(58, 40, 96, 0.36);
+  --glow-cta-ring: rgba(107, 74, 192, 0.32);
+  --glow-cta-ring-hot: rgba(107, 74, 192, 0.62);
+  --glow-cta-halo: rgba(139, 92, 246, 0.3);
+  --glow-cta-cast: rgba(58, 40, 96, 0.26);
+  --glow-hover-color: rgba(139, 92, 246, 0.45);
+  --shine-core: rgba(139, 92, 246, 0.12);
+  --shine-rim: rgba(139, 92, 246, 0.06);
+  --grid-line: rgba(107, 74, 192, 0.1);
+  --crystal-edge: rgba(79, 47, 156, 0.9);
+  --crystal-fill: linear-gradient(135deg, rgba(107, 74, 192, 0.5), transparent 60%);
+  --rail-grad: linear-gradient(180deg, rgba(226, 218, 243, 0.94), rgba(209, 198, 234, 0.97));
+  --rail-cast: 4px 0 28px -16px rgba(58, 40, 96, 0.3);
+  --rail-edge: rgba(107, 74, 192, 0.22);
+  --topbar-cast: 0 14px 34px -22px rgba(58, 40, 96, 0.34);
+  --hairline-a: rgba(79, 47, 156, 0.45);
+  --hairline-b: rgba(139, 92, 246, 0.38);
+  --accent-a: #7a5cc9;
   --accent-b: #5b21b6;
-  --orb-a-fill: rgba(139, 92, 246, 0.12);
-  --orb-b-fill: rgba(125, 98, 190, 0.12);
-  --orb-c-fill: rgba(91, 33, 182, 0.07);
-  --aura-fill: rgba(139, 92, 246, 0.05);
-  --grain-opacity: 0.35;
-  --nav-glow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --nav-glow-ring: 0 0 0 1px rgba(109, 81, 184, 0.18);
-  --nav-glow-cast: 0 10px 22px -12px rgba(109, 81, 184, 0.3);
-  --chart-tick: rgba(97, 86, 128, 0.9);
-  --chart-grid: rgba(109, 81, 184, 0.14);
-  --chart-cursor: rgba(109, 81, 184, 0.05);
+  --orb-a-fill: rgba(139, 92, 246, 0.28);
+  --orb-b-fill: rgba(124, 100, 200, 0.24);
+  --orb-c-fill: rgba(91, 33, 182, 0.16);
+  --aura-fill: rgba(139, 92, 246, 0.1);
+  --grain-opacity: 0.4;
+  --nav-glow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --nav-glow-ring: 0 0 0 1px rgba(107, 74, 192, 0.22);
+  --nav-glow-cast: 0 10px 22px -12px rgba(107, 74, 192, 0.4);
+  --chart-tick: rgba(94, 83, 130, 0.9);
+  --chart-grid: rgba(107, 74, 192, 0.16);
+  --chart-cursor: rgba(107, 74, 192, 0.06);
 }
 
 /* Themed subtle fill for dashboard cards (replaces bg-white/[0.03]). */
@@ -246,17 +250,17 @@
 }
 
 @layer utilities {
-  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 38%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 48%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 56%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 68%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 72%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 78%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 82%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 85%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 89%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 91%, transparent); }
-  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 94%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 40%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 52%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 60%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 73%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 79%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 83%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 86%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 89%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 91%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 93%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 95%, transparent); }
   :where(.theme-light) :where(.app-shell) .text-ice\/85 { color: color-mix(in oklab, var(--color-ice) 97%, transparent); }
 
   /* Keep the designed hover brightening explicit, so a hovered element always
