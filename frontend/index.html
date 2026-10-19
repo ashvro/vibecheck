@@ -14,16 +14,6 @@
     />
   </head>
   <body>
-    <script>
-      // Apply the stored theme before first paint so light mode never flashes dark.
-      try {
-        var t = localStorage.getItem('vibecheck.theme') === 'light' ? 'light' : 'dark'
-        if (t === 'light') document.documentElement.classList.add('theme-light')
-        document.documentElement.style.colorScheme = 'dark'
-      } catch (e) {
-        /* keep default dark */
-      }
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

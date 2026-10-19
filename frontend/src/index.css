@@ -40,10 +40,12 @@
    `@theme` above ships the dark (default) palette. The block below re-states
    it for two scopes:
      - `:root`       → the default, dark everywhere
-     - `.theme-dark` → re-shadows the light overrides on a subtree, so the
-                       marketing / auth pages stay dark while the app is lit
-   `.theme-light` is set on <html> by the theme toggle and swaps in a deeper
-   violet cut of the same plum / ice / violet family. Tailwind utilities
+     - `.theme-dark` → re-shadows those same tokens on a subtree; kept on the
+                       marketing / auth pages so they stay pinned dark no
+                       matter what happens to the app scope.
+   `.theme-light` swapped in a deeper purple cut of the same plum / ice /
+   violet family; it is parked while the toggle is gone, so `.theme-dark`
+   below is currently the only scope in play. Tailwind utilities
    compile to `var(--color-*)`, so redefining the tokens reskins every tab at
    once.
    -------------------------------------------------------------------------- */
@@ -141,7 +143,11 @@
    which is blue-violet and reads as a blue wash over the page.
    It stays a dark UI on purpose: a mid-tone purple cannot hold good contrast
    for either dark or light text, and a bright page is what hurt the eyes.
-   Text is pale orchid-lavender, matched to the purple surfaces. */
+   Text is pale orchid-lavender, matched to the purple surfaces.
+
+   Parked: the toggle that applied this scope was removed, so nothing adds
+   `.theme-light` right now and the app is dark-only. The block is kept whole
+   for when the toggle returns. */
 .theme-light {
   /* Accent aliases (dashboard still uses teal-* class names) */
   --color-teal-soft: #b394c9;

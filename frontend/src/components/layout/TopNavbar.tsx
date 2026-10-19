@@ -1,13 +1,10 @@
-import { Bell, Menu, MoonStar, Search, Sun } from 'lucide-react'
-import { useTheme } from '../../lib/theme'
+import { Bell, Menu, Search } from 'lucide-react'
 
 type TopNavbarProps = {
   onMenuClick: () => void
 }
 
 export function TopNavbar({ onMenuClick }: TopNavbarProps) {
-  const { mode, toggle } = useTheme()
-
   return (
     <header className="nav-topbar hairline-grad sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-ice/10 bg-thaw/70 px-4 backdrop-blur-md sm:px-6">
       <button
@@ -29,16 +26,6 @@ export function TopNavbar({ onMenuClick }: TopNavbarProps) {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-        <button
-          type="button"
-          onClick={toggle}
-          className="relative p-2 text-ice/45 transition hover:bg-ice/5 hover:text-ice"
-          aria-label={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          title={mode === 'dark' ? 'Light mode' : 'Dark mode'}
-        >
-          {mode === 'dark' ? <Sun className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
-        </button>
-
         <button
           type="button"
           className="relative p-2 text-ice/45 transition hover:bg-ice/5 hover:text-ice"

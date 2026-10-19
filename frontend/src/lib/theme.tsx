@@ -11,9 +11,11 @@ import {
 export type ThemeMode = 'dark' | 'light'
 
 /**
- * Dark is the product default; a chosen light theme is remembered. The same
- * key is read by the inline bootstrap in index.html so the first paint never
- * flashes dark before React mounts.
+ * Parked, not mounted: the mode toggle was removed from the top navbar, so
+ * main.tsx no longer wraps the app in <ThemeProvider> and the product is
+ * dark-only. Everything here is kept intact — along with the `.theme-light`
+ * token block in index.css — so the toggle can come back by re-mounting the
+ * provider and restoring the no-flash bootstrap script in index.html.
  */
 const STORAGE_KEY = 'vibecheck.theme'
 
