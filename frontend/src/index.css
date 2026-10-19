@@ -35,6 +35,259 @@
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
+/* --------------------------------------------------------------------------
+   Theme tokens
+   `@theme` above ships the dark (default) palette. The block below re-states
+   it for two scopes:
+     - `:root`       → the default, dark everywhere
+     - `.theme-dark` → re-shadows the light overrides on a subtree, so the
+                       marketing / auth pages stay dark while the app is lit
+   `.theme-light` is set on <html> by the theme toggle and swaps in a lighter
+   tint of the same plum / ice / violet family. Tailwind utilities compile to
+   `var(--color-*)`, so redefining the tokens reskins every tab at once.
+   -------------------------------------------------------------------------- */
+:root,
+.theme-dark {
+  color-scheme: dark;
+
+  /* Accent aliases (dashboard still uses teal-* class names) */
+  --color-teal-soft: #8b7aad;
+  --color-teal: #b8a4e0;
+  --color-teal-dark: #d4c4f5;
+  --color-slate-blue: #9b87c9;
+  --color-emerald-soft: #9db8a8;
+  --color-amber-gentle: #d4b896;
+
+  /* Surfaces — deep plum */
+  --color-bg: #120f18;
+  --color-surface: #1a1524;
+  --color-surface-2: #241e30;
+  --color-ink: #f0ebf8;
+  --color-muted: #9a8fb0;
+  --color-line: #342c42;
+
+  /* Brand tokens used across landing + app */
+  --color-thaw: #120f18;
+  --color-thaw-deep: #0b0910;
+  --color-thaw-lift: #1a1524;
+  --color-ice: #b8a4e0;
+  --color-ice-dim: #8b7aad;
+  --color-ice-bright: #d4c4f5;
+  --color-frost: #f0ebf8;
+  --color-violet: #8b5cf6;
+  --color-violet-soft: #c4b5fd;
+  --color-violet-deep: #5b21b6;
+
+  /* Semantic surfaces & effects — the shared utilities below read these, so a
+     theme only has to swap this one set. */
+  --body-glow-1: radial-gradient(ellipse 70% 45% at 85% -10%, rgba(139, 92, 246, 0.14), transparent 55%);
+  --body-glow-2: radial-gradient(ellipse 50% 40% at 0% 100%, rgba(184, 164, 224, 0.07), transparent 50%);
+  --body-glow-3: radial-gradient(ellipse 40% 30% at 50% 50%, rgba(91, 33, 182, 0.04), transparent 60%);
+  --frost-glow-1: radial-gradient(ellipse 70% 50% at 80% 0%, rgba(139, 92, 246, 0.1), transparent 55%);
+  --frost-glow-2: radial-gradient(ellipse 50% 40% at 10% 100%, rgba(184, 164, 224, 0.06), transparent 50%);
+  --selection-bg: rgba(184, 164, 224, 0.4);
+  --selection-ink: #120f18;
+  --scroll-thumb: rgba(184, 164, 224, 0.28);
+  --scroll-thumb-grad: linear-gradient(180deg, rgba(184, 164, 224, 0.3), rgba(139, 92, 246, 0.22));
+  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(212, 196, 245, 0.45), rgba(139, 92, 246, 0.35));
+  --focus-ring: rgba(184, 164, 224, 0.55);
+  --tint-subtle: rgba(255, 255, 255, 0.03);
+  --tint-subtle-strong: rgba(255, 255, 255, 0.05);
+  --glass-grad: linear-gradient(160deg, rgba(36, 30, 48, 0.6), rgba(26, 21, 36, 0.74) 55%, rgba(18, 15, 24, 0.72));
+  --glass-ice-grad: linear-gradient(160deg, rgba(36, 30, 48, 0.5), rgba(18, 15, 24, 0.6) 60%, rgba(18, 15, 24, 0.48));
+  --edge-strong: rgba(184, 164, 224, 0.12);
+  --edge-strong-top: rgba(212, 196, 245, 0.18);
+  --edge-ice: rgba(184, 164, 224, 0.14);
+  --edge-ice-top: rgba(212, 196, 245, 0.22);
+  --edge-hover: rgba(184, 164, 224, 0.26);
+  --depth-1: 0 1px 2px rgba(6, 4, 10, 0.45), 0 8px 20px -12px rgba(6, 4, 10, 0.6);
+  --depth-2: 0 1px 2px rgba(6, 4, 10, 0.45), 0 16px 34px -14px rgba(6, 4, 10, 0.65);
+  --depth-3: 0 2px 4px rgba(6, 4, 10, 0.5), 0 28px 56px -20px rgba(6, 4, 10, 0.7);
+  --glow-cta-ring: rgba(184, 164, 224, 0.22);
+  --glow-cta-ring-hot: rgba(212, 196, 245, 0.55);
+  --glow-cta-halo: rgba(139, 92, 246, 0.35);
+  --glow-cta-cast: rgba(0, 0, 0, 0.4);
+  --glow-hover-color: rgba(139, 92, 246, 0.55);
+  --shine-core: rgba(139, 92, 246, 0.16);
+  --shine-rim: rgba(212, 196, 245, 0.07);
+  --grid-line: rgba(184, 164, 224, 0.045);
+  --crystal-edge: rgba(212, 196, 245, 0.75);
+  --crystal-fill: linear-gradient(135deg, rgba(184, 164, 224, 0.45), transparent 60%);
+  --rail-grad: linear-gradient(180deg, rgba(26, 21, 36, 0.94), rgba(11, 9, 16, 0.97));
+  --rail-cast: 4px 0 28px -16px rgba(6, 4, 10, 0.9);
+  --rail-edge: rgba(184, 164, 224, 0.07);
+  --topbar-cast: 0 14px 34px -22px rgba(6, 4, 10, 0.95);
+  --hairline-a: rgba(212, 196, 245, 0.35);
+  --hairline-b: rgba(139, 92, 246, 0.3);
+  --accent-a: #d4c4f5;
+  --accent-b: #8b5cf6;
+  --orb-a-fill: rgba(139, 92, 246, 0.2);
+  --orb-b-fill: rgba(184, 164, 224, 0.13);
+  --orb-c-fill: rgba(91, 33, 182, 0.15);
+  --aura-fill: rgba(139, 92, 246, 0.08);
+  --grain-opacity: 0.5;
+  --nav-glow-inset: inset 0 1px 0 rgba(212, 196, 245, 0.14);
+  --nav-glow-ring: 0 0 0 1px rgba(184, 164, 224, 0.12);
+  --nav-glow-cast: 0 10px 22px -12px rgba(139, 92, 246, 0.55);
+  --chart-tick: rgba(148, 163, 184, 0.85);
+  --chart-grid: rgba(148, 163, 184, 0.12);
+  --chart-cursor: rgba(148, 163, 184, 0.06);
+}
+
+/* Light theme — a lighter tint of the same plum / ice / violet family. */
+.theme-light {
+  color-scheme: light;
+
+  --color-teal-soft: #6a5599;
+  --color-teal: #6f52bd;
+  --color-teal-dark: #57389f;
+  --color-slate-blue: #5f4b96;
+  --color-emerald-soft: #4a7a5b;
+  --color-amber-gentle: #93652d;
+
+  --color-bg: #f5f2fa;
+  --color-surface: #fdfcff;
+  --color-surface-2: #ece7f5;
+  --color-ink: #241c33;
+  --color-muted: #6d6488;
+  --color-line: #e0d9ef;
+
+  --color-thaw: #f5f2fa;
+  --color-thaw-deep: #ece6f5;
+  --color-thaw-lift: #fdfcff;
+  --color-ice: #6f52bd;
+  --color-ice-dim: #8574b3;
+  --color-ice-bright: #57389f;
+  --color-frost: #1d1530;
+  --color-violet: #6d3ef0;
+  --color-violet-soft: #4c2fa4;
+  --color-violet-deep: #3f1878;
+
+  --body-glow-1: radial-gradient(ellipse 70% 45% at 85% -10%, rgba(139, 92, 246, 0.1), transparent 55%);
+  --body-glow-2: radial-gradient(ellipse 50% 40% at 0% 100%, rgba(125, 98, 190, 0.08), transparent 50%);
+  --body-glow-3: radial-gradient(ellipse 40% 30% at 50% 50%, rgba(91, 33, 182, 0.05), transparent 60%);
+  --frost-glow-1: radial-gradient(ellipse 70% 50% at 80% 0%, rgba(139, 92, 246, 0.08), transparent 55%);
+  --frost-glow-2: radial-gradient(ellipse 50% 40% at 10% 100%, rgba(125, 98, 190, 0.07), transparent 50%);
+  --selection-bg: rgba(139, 92, 246, 0.22);
+  --selection-ink: #241c33;
+  --scroll-thumb: rgba(109, 81, 184, 0.35);
+  --scroll-thumb-grad: linear-gradient(180deg, rgba(109, 81, 184, 0.35), rgba(139, 92, 246, 0.28));
+  --scroll-thumb-grad-hot: linear-gradient(180deg, rgba(87, 56, 159, 0.5), rgba(109, 81, 184, 0.4));
+  --focus-ring: rgba(109, 81, 184, 0.6);
+  --tint-subtle: rgba(109, 81, 184, 0.05);
+  --tint-subtle-strong: rgba(109, 81, 184, 0.09);
+  --glass-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.82), rgba(250, 248, 254, 0.86) 55%, rgba(244, 241, 252, 0.8));
+  --glass-ice-grad: linear-gradient(160deg, rgba(255, 255, 255, 0.78), rgba(250, 248, 253, 0.85) 60%, rgba(245, 242, 252, 0.75));
+  --edge-strong: rgba(109, 81, 184, 0.16);
+  --edge-strong-top: rgba(255, 255, 255, 0.95);
+  --edge-ice: rgba(109, 81, 184, 0.2);
+  --edge-ice-top: rgba(255, 255, 255, 0.95);
+  --edge-hover: rgba(109, 81, 184, 0.4);
+  --depth-1: 0 1px 2px rgba(76, 58, 110, 0.08), 0 8px 20px -12px rgba(76, 58, 110, 0.2);
+  --depth-2: 0 1px 2px rgba(76, 58, 110, 0.08), 0 16px 34px -14px rgba(76, 58, 110, 0.24);
+  --depth-3: 0 2px 4px rgba(76, 58, 110, 0.1), 0 28px 56px -20px rgba(76, 58, 110, 0.28);
+  --glow-cta-ring: rgba(109, 81, 184, 0.3);
+  --glow-cta-ring-hot: rgba(109, 81, 184, 0.6);
+  --glow-cta-halo: rgba(139, 92, 246, 0.25);
+  --glow-cta-cast: rgba(76, 58, 110, 0.22);
+  --glow-hover-color: rgba(139, 92, 246, 0.4);
+  --shine-core: rgba(139, 92, 246, 0.09);
+  --shine-rim: rgba(139, 92, 246, 0.05);
+  --grid-line: rgba(109, 81, 184, 0.07);
+  --crystal-edge: rgba(87, 56, 159, 0.9);
+  --crystal-fill: linear-gradient(135deg, rgba(109, 81, 184, 0.45), transparent 60%);
+  --rail-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 236, 249, 0.97));
+  --rail-cast: 4px 0 28px -16px rgba(76, 58, 110, 0.25);
+  --rail-edge: rgba(109, 81, 184, 0.16);
+  --topbar-cast: 0 14px 34px -22px rgba(76, 58, 110, 0.3);
+  --hairline-a: rgba(87, 56, 159, 0.4);
+  --hairline-b: rgba(139, 92, 246, 0.3);
+  --accent-a: #8a6bd4;
+  --accent-b: #5b21b6;
+  --orb-a-fill: rgba(139, 92, 246, 0.12);
+  --orb-b-fill: rgba(125, 98, 190, 0.12);
+  --orb-c-fill: rgba(91, 33, 182, 0.07);
+  --aura-fill: rgba(139, 92, 246, 0.05);
+  --grain-opacity: 0.35;
+  --nav-glow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --nav-glow-ring: 0 0 0 1px rgba(109, 81, 184, 0.18);
+  --nav-glow-cast: 0 10px 22px -12px rgba(109, 81, 184, 0.3);
+  --chart-tick: rgba(97, 86, 128, 0.9);
+  --chart-grid: rgba(109, 81, 184, 0.14);
+  --chart-cursor: rgba(109, 81, 184, 0.05);
+}
+
+/* Themed subtle fill for dashboard cards (replaces bg-white/[0.03]). */
+@utility tint-subtle {
+  background-color: var(--tint-subtle);
+}
+
+@utility tint-subtle-strong {
+  background-color: var(--tint-subtle-strong);
+}
+
+/* --------------------------------------------------------------------------
+   Light-mode legibility
+   The dark UI expresses hierarchy by dimming with a fixed alpha
+   (`text-ice/55`, `text-rose-400`…). Over a light surface those read too
+   faint, so inside the app shell they are re-pointed at stronger tones.
+   Scoped to `.app-shell` and kept at low specificity (`:where`) so the
+   landing / auth pages stay dark and hover states still brighten normally.
+   -------------------------------------------------------------------------- */
+.theme-light .app-shell {
+  /* Warning / error accents that were tuned for a dark surface. */
+  --color-rose-300: #9f1239;
+  --color-rose-400: #be123c;
+  --color-rose-500: #be123c;
+  --color-red-300: #b91c1c;
+  --color-amber-400: #b45309;
+  --color-sky-400: #0369a1;
+  --color-violet-200: #5b21b6;
+}
+
+@layer utilities {
+  :where(.theme-light) :where(.app-shell) .text-ice\/20 { color: color-mix(in oklab, var(--color-ice) 38%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/30 { color: color-mix(in oklab, var(--color-ice) 48%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/35 { color: color-mix(in oklab, var(--color-ice) 56%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/40 { color: color-mix(in oklab, var(--color-ice) 68%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/45 { color: color-mix(in oklab, var(--color-ice) 72%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/50 { color: color-mix(in oklab, var(--color-ice) 78%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/55 { color: color-mix(in oklab, var(--color-ice) 82%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/60 { color: color-mix(in oklab, var(--color-ice) 85%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/70 { color: color-mix(in oklab, var(--color-ice) 89%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/75 { color: color-mix(in oklab, var(--color-ice) 91%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/80 { color: color-mix(in oklab, var(--color-ice) 94%, transparent); }
+  :where(.theme-light) :where(.app-shell) .text-ice\/85 { color: color-mix(in oklab, var(--color-ice) 97%, transparent); }
+
+  /* Keep the designed hover brightening explicit, so a hovered element always
+     lands on the full accent regardless of source order. */
+  :where(.theme-light) :where(.app-shell)
+    :is(
+      .text-ice\/40,
+      .text-ice\/45,
+      .text-ice\/50,
+      .text-ice\/55,
+      .text-ice\/60,
+      .text-ice\/70,
+      .text-ice\/80
+    ):hover {
+    color: var(--color-ice);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Atomic theme swap
+   The shell fades colours with `transition-colors` and paints gradients that
+   cannot transition, so a toggle would briefly mix the two themes. For the one
+   frame the class is applied, stop transitions so the whole UI swaps together.
+   -------------------------------------------------------------------------- */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -43,10 +296,7 @@
 
   body {
     @apply bg-bg text-ink font-sans antialiased;
-    background-image:
-      radial-gradient(ellipse 70% 45% at 85% -10%, rgba(139, 92, 246, 0.14), transparent 55%),
-      radial-gradient(ellipse 50% 40% at 0% 100%, rgba(184, 164, 224, 0.07), transparent 50%),
-      radial-gradient(ellipse 40% 30% at 50% 50%, rgba(91, 33, 182, 0.04), transparent 60%);
+    background-image: var(--body-glow-1), var(--body-glow-2), var(--body-glow-3);
     background-attachment: fixed;
     font-feature-settings: "ss01" on, "cv11" on;
   }
@@ -58,8 +308,8 @@
   }
 
   ::selection {
-    background: rgba(184, 164, 224, 0.4);
-    color: #120f18;
+    background: var(--selection-bg);
+    color: var(--selection-ink);
   }
 }
 
@@ -93,46 +343,50 @@
 
   .chat-shine {
     background:
-      radial-gradient(560px circle at var(--gx, 50%) var(--gy, 20%), rgba(139, 92, 246, 0.16), transparent 60%),
-      radial-gradient(ellipse 70% 50% at 85% 0%, rgba(212, 196, 245, 0.07), transparent 55%);
+      radial-gradient(560px circle at var(--gx, 50%) var(--gy, 20%), var(--shine-core), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 85% 0%, var(--shine-rim), transparent 55%);
   }
 
   .glass {
-    background: rgba(26, 21, 36, 0.75);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(184, 164, 224, 0.12);
+    background: var(--glass-grad);
+    backdrop-filter: blur(16px) saturate(1.2);
+    border: 1px solid var(--edge-strong);
+    border-top-color: var(--edge-strong-top);
+    box-shadow: var(--depth-1);
   }
 
   .glass-ice {
-    background: rgba(18, 15, 24, 0.5);
-    backdrop-filter: blur(18px) saturate(1.15);
-    border: 1px solid rgba(184, 164, 224, 0.14);
+    background: var(--glass-ice-grad);
+    backdrop-filter: blur(20px) saturate(1.25);
+    border: 1px solid var(--edge-ice);
+    border-top-color: var(--edge-ice-top);
+    box-shadow: var(--depth-1);
   }
 
   .glow-cta {
-    box-shadow: 0 0 0 1px rgba(184, 164, 224, 0.22);
+    box-shadow: 0 0 0 1px var(--glow-cta-ring);
     transition: box-shadow 0.25s ease, background-color 0.2s ease;
   }
 
   .glow-cta:hover {
     box-shadow:
-      0 0 0 1px rgba(212, 196, 245, 0.55),
-      0 0 24px rgba(139, 92, 246, 0.35),
-      0 8px 28px rgba(0, 0, 0, 0.4);
+      0 0 0 1px var(--glow-cta-ring-hot),
+      0 0 24px var(--glow-cta-halo),
+      0 8px 28px var(--glow-cta-cast);
   }
 
   .landing-grid {
     background-image:
-      linear-gradient(rgba(184, 164, 224, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(184, 164, 224, 0.045) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 72px 72px;
   }
 
   .landing-frost {
     background:
-      radial-gradient(ellipse 70% 50% at 80% 0%, rgba(139, 92, 246, 0.1), transparent 55%),
-      radial-gradient(ellipse 50% 40% at 10% 100%, rgba(184, 164, 224, 0.06), transparent 50%),
-      #120f18;
+      var(--frost-glow-1),
+      var(--frost-glow-2),
+      var(--color-thaw);
   }
 
   .landing-facet {
@@ -146,8 +400,8 @@
     width: 7px;
     height: 7px;
     flex-shrink: 0;
-    border: 1px solid rgba(212, 196, 245, 0.75);
-    background: linear-gradient(135deg, rgba(184, 164, 224, 0.45), transparent 60%);
+    border: 1px solid var(--crystal-edge);
+    background: var(--crystal-fill);
     transform: rotate(45deg);
   }
 
@@ -1454,6 +1708,21 @@
     filter: none;
     transition: none;
   }
+
+  .aurora-orb,
+  .aura-follow,
+  .page-enter,
+  .rise-grid > *,
+  .nav-card,
+  .nav-card::before {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .rise-grid > * {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 @keyframes voice-pulse {
@@ -1468,4 +1737,263 @@
 
 .voice-pulse {
   animation: voice-pulse 1.4s ease-out infinite;
+}
+
+/* ============================================================================
+   Spatial UI layer — depth, light and motion for the app shell.
+   Same plum/ice/violet palette; presentation only (no behaviour changes).
+   ========================================================================== */
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb-grad);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-grad-hot);
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* ---- Ambient background: slow-drifting aurora + cursor-tracked light ---- */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .aurora-orb {
+    position: absolute;
+    border-radius: 999px;
+    filter: blur(64px);
+    will-change: transform;
+  }
+
+  .orb-a {
+    top: -12vh;
+    right: -8vw;
+    width: 48vw;
+    height: 48vw;
+    background: radial-gradient(circle, var(--orb-a-fill), transparent 65%);
+    animation: orb-drift-a 26s ease-in-out infinite alternate;
+  }
+
+  .orb-b {
+    left: -10vw;
+    bottom: -12vh;
+    width: 42vw;
+    height: 42vw;
+    background: radial-gradient(circle, var(--orb-b-fill), transparent 65%);
+    animation: orb-drift-b 32s ease-in-out infinite alternate;
+  }
+
+  .orb-c {
+    top: 38%;
+    left: 42%;
+    width: 26vw;
+    height: 26vw;
+    background: radial-gradient(circle, var(--orb-c-fill), transparent 65%);
+    animation: orb-drift-c 40s ease-in-out infinite alternate;
+  }
+
+  @keyframes orb-drift-a {
+    to { transform: translate3d(-7vw, 9vh, 0) scale(1.12); }
+  }
+
+  @keyframes orb-drift-b {
+    to { transform: translate3d(8vw, -7vh, 0) scale(1.08); }
+  }
+
+  @keyframes orb-drift-c {
+    to { transform: translate3d(-10vw, 6vh, 0) scale(1.15); }
+  }
+
+  .aura-follow {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(460px circle at var(--mx, 50%) var(--my, 24%), var(--aura-fill), transparent 62%);
+  }
+
+  /* Fine film-grain so surfaces read as material instead of flat CSS boxes. */
+  .grain::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: soft-light;
+    background-size: 140px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)' opacity='0.14'/%3E%3C/svg%3E");
+  }
+
+  /* ---- Page stage: routes arrive with a soft 3D slide --------------------- */
+  /* Perspective lives inside the keyframe transform (not on a parent) so the
+     3D depth exists only during the entrance and never traps page overlays. */
+  .page-enter {
+    transform-origin: 50% 0;
+    /* `backwards` (not `both`): styles are released once the entrance ends, so
+       the wrapper never keeps a filter/transform that would trap `fixed`
+       overlays rendered inside a page. */
+    animation: page-spatial 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  @keyframes page-spatial {
+    from {
+      opacity: 0;
+      transform: perspective(1400px) translateY(22px) rotateX(2.5deg) scale(0.99);
+      filter: blur(6px);
+    }
+    to {
+      opacity: 1;
+      transform: perspective(1400px) translateY(0) rotateX(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  /* ---- Staggered rise: children of .rise-grid cascade in on mount -------- */
+  .rise-grid > * {
+    /* `backwards` releases the element after the entrance so hover lifts and
+       sticky positioning keep working normally. */
+    animation: rise-item 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  .rise-grid > *:nth-child(1) { animation-delay: 0.05s; }
+  .rise-grid > *:nth-child(2) { animation-delay: 0.1s; }
+  .rise-grid > *:nth-child(3) { animation-delay: 0.15s; }
+  .rise-grid > *:nth-child(4) { animation-delay: 0.2s; }
+  .rise-grid > *:nth-child(5) { animation-delay: 0.25s; }
+  .rise-grid > *:nth-child(6) { animation-delay: 0.3s; }
+  .rise-grid > *:nth-child(7) { animation-delay: 0.35s; }
+  .rise-grid > *:nth-child(8) { animation-delay: 0.4s; }
+  .rise-grid > *:nth-child(n + 9) { animation-delay: 0.45s; }
+
+  @keyframes rise-item {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Direct-child glass cards float on hover — no per-card wiring needed. */
+  .rise-grid > .glass-ice {
+    transition:
+      transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.35s ease,
+      border-color 0.3s ease;
+  }
+
+  .rise-grid > .glass-ice:hover {
+    transform: translateY(-3px);
+    border-color: var(--edge-hover);
+    box-shadow: var(--depth-2), 0 0 32px -14px var(--glow-hover-color);
+  }
+
+  /* ---- Navigation: elevated rail, lit top bar, active accent ------------- */
+  .nav-rail {
+    background-image: var(--rail-grad);
+    backdrop-filter: blur(18px) saturate(1.15);
+    box-shadow:
+      var(--rail-cast),
+      inset -1px 0 0 var(--rail-edge);
+  }
+
+  .nav-topbar {
+    backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: var(--topbar-cast);
+  }
+
+  .hairline-grad {
+    position: relative;
+  }
+
+  .hairline-grad::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--hairline-a) 30%,
+      var(--hairline-b) 65%,
+      transparent
+    );
+  }
+
+  .nav-card {
+    position: relative;
+    transition:
+      transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 0.25s ease,
+      border-color 0.25s ease,
+      color 0.25s ease;
+  }
+
+  .nav-card:hover {
+    transform: translateX(2px);
+  }
+
+  /* Lit edge accent that grows in on the active NavLink (aria-current). */
+  .nav-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 22%;
+    bottom: 22%;
+    width: 2px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, var(--accent-a), var(--accent-b));
+    opacity: 0;
+    transform: scaleY(0.35);
+    transition:
+      opacity 0.3s ease,
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .nav-card[aria-current='page']::before {
+    opacity: 1;
+    transform: none;
+  }
+
+  .nav-active-glow {
+    box-shadow:
+      var(--nav-glow-inset),
+      var(--nav-glow-ring),
+      var(--nav-glow-cast);
+  }
 }

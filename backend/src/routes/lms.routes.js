@@ -73,10 +73,22 @@ function validDate(dateStr) {
 lmsRoutes.get('/courses', async (req, res, next) => {
   try {
     const courses = await prisma.course.findMany({
-      include: { quizzes: true, assignments: true, _count: { select: { sessions: true } } },
+      include: {
+        quizzes: true,
+        assignments: true,
+        _count: { select: { sessions: true, enrollments: true } },
+      },
       orderBy: { code: 'asc' },
     })
-    res.json(courses.map(({ _count, ...c }) => ({ ...c, classCount: _count.sessions })))
+    res.json(
+      courses.map(({ _count, ...c }) => ({
+        ...c,
+        classCount: _count.sessions,
+        // Head-count per course, so the faculty dashboard can show how many
+        // students sit in each course without one roster request per course.
+        studentCount: _count.enrollments,
+      })),
+    )
   } catch (err) {
     next(err)
   }
@@ -95,6 +107,23 @@ lmsRoutes.get('/staff', requireRole('admin'), async (req, res, next) => {
       orderBy: { name: 'asc' },
     })
     res.json(staff)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * Headline counts for the faculty dashboard. `students` is distinct people,
+ * not enrolments — a student in three courses must count once, or the card
+ * reads higher than any roster behind it.
+ */
+lmsRoutes.get('/stats', requireAuth, async (req, res, next) => {
+  try {
+    const [courses, students] = await Promise.all([
+      prisma.course.count(),
+      prisma.enrollment.groupBy({ by: ['userId'] }),
+    ])
+    res.json({ courses, students: students.length })
   } catch (err) {
     next(err)
   }

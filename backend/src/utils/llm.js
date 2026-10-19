@@ -8,6 +8,11 @@ export const modelConfig = {
   groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
   groqFastModel: process.env.GROQ_FAST_MODEL || 'openai/gpt-oss-20b',
   groqSttModel: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
+  // The gpt-oss family is text-only on Groq — image input needs a multimodal
+  // model. Which vision models exist varies by Groq account/tier, so the
+  // study planner also falls back through a small candidate list (see
+  // routes/studyplanner.routes.js: qwen3.8 = 3 images/req, llama-4-scout = 5).
+  groqVisionModel: process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b',
   embedModel: process.env.HF_EMBED_MODEL || 'BAAI/bge-base-en-v1.5',
 }
 
@@ -53,7 +58,7 @@ async function fetchWithTimeout(url, options = {}, ms = 30000, externalSignal = 
       const res = await fetch(url, { ...options, signal: ctrl.signal })
       if (!res.ok) {
         const body = await res.text().catch(() => '')
-        const err = new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`)
+        const err = new Error(`HTTP ${res.status}: ${body.slice(0, 800)}`)
         err.status = res.status
         if (RETRYABLE.has(res.status) && attempt < 2) {
           await new Promise((r) => setTimeout(r, (attempt + 1) * 1200))
@@ -79,7 +84,8 @@ async function fetchWithTimeout(url, options = {}, ms = 30000, externalSignal = 
   throw lastErr ?? new Error('Request failed')
 }
 
-function extractJson(content) {
+/** Strips code fences and salvages the outermost {...} from a model reply. */
+export function extractJson(content) {
   const cleaned = content.replace(/```(?:json)?/g, '').trim()
   try {
     return JSON.parse(cleaned)
@@ -110,13 +116,25 @@ function buildMessages({ system, user, history = [] }) {
   return messages
 }
 
-export async function groqChat({ system, user, history = [], json = false, temperature = 0.4, maxTokens = 1024, signal, model, reasoningEffort }) {
+export async function groqChat({ system, user, history = [], images = null, json = false, temperature = 0.4, maxTokens = 1024, signal, model, reasoningEffort, onUsage }) {
   if (!hasGroq()) throw Object.assign(new Error('GROQ_API_KEY not configured'), { status: 503 })
 
   const targetModel = model || modelConfig.groqModel
+  // Image parts go on the *current* user turn only; history stays text.
+  const hasImages = Array.isArray(images) && images.length > 0
+  const messages = buildMessages({ system, user: hasImages ? null : user, history })
+  if (hasImages) {
+    messages.push({
+      role: 'user',
+      content: [
+        ...(user ? [{ type: 'text', text: String(user) }] : []),
+        ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+      ],
+    })
+  }
   const body = {
     model: targetModel,
-    messages: buildMessages({ system, user, history }),
+    messages,
     temperature,
     max_tokens: maxTokens,
   }
@@ -134,6 +152,7 @@ export async function groqChat({ system, user, history = [], json = false, tempe
   }, 45000, signal)
 
   const data = await res.json()
+  if (onUsage && data?.usage) onUsage(data.usage)
   const content = data?.choices?.[0]?.message?.content
   if (!content) throw new Error('GROQ returned no content')
   if (json) return extractJson(content)

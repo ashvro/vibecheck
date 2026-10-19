@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { CrystalMark } from '../../components/CrystalMark'
+import { PageHeader } from '../../components/PageHeader'
 import { api, getUser } from '../../lib/api'
 import { mlApi, type MlRisk, type MlSummary } from '../../lib/ml'
 
@@ -196,17 +197,12 @@ export function OverviewPage() {
     }))
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div className="border-b border-line pb-8">
-        <div className="mb-3 flex items-center gap-3">
-          <CrystalMark spinOnView />
-          <p className="font-mono text-[11px] tracking-[0.18em] text-muted uppercase">Overview</p>
-        </div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
-          {greeting}, {firstName}
-        </h1>
-        <p className="mt-1 text-sm text-muted">{today} · {time}</p>
-      </div>
+    <div className="rise-grid mx-auto max-w-5xl space-y-8">
+      <PageHeader
+        eyebrow="Overview"
+        title={`${greeting}, ${firstName}`}
+        description={`${today} · ${time}`}
+      />
 
       <div className="grid grid-cols-2 gap-3">
         {statCards.map(({ label, value, unit, icon: Icon, bar, kind }) => (
@@ -254,14 +250,14 @@ export function OverviewPage() {
 
         <ul className="mt-4 space-y-2.5">
           {tdo.length === 0 && (
-            <li className="rounded-xl border border-ice/10 bg-white/[0.03] px-3.5 py-3 text-sm text-muted">
+            <li className="rounded-xl border border-ice/10 tint-subtle px-3.5 py-3 text-sm text-muted">
               No upcoming quizzes or assignments — enjoy the calm.
             </li>
           )}
           {tdo.map(({ id, title, course, date, daysLeft, kind }) => (
             <li
               key={id}
-              className="group flex items-center gap-3.5 rounded-xl border border-ice/10 bg-white/[0.03] px-3.5 py-3 transition hover:border-ice/25 hover:bg-white/[0.05]"
+              className="group flex items-center gap-3.5 rounded-xl border border-ice/10 tint-subtle px-3.5 py-3 transition hover:border-ice/25 hover:tint-subtle-strong"
             >
               <span
                 className={clsx(

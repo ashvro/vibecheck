@@ -11,7 +11,6 @@ import {
   YAxis,
 } from 'recharts'
 import { ChevronRight, ShieldCheck } from 'lucide-react'
-import { CrystalMark } from '../../components/CrystalMark'
 import { MlRiskPanel } from '../../components/ml/MlRiskPanel'
 import { PageHeader } from '../../components/PageHeader'
 import {
@@ -34,14 +33,14 @@ import { mlApi, mlRiskStyles, type MlSummary } from '../../lib/ml'
  * ------------------------------------------------------------------ */
 
 const CHART_TOOLTIP = {
-  background: '#0b1120',
-  border: '1px solid rgba(148,163,184,0.2)',
+  background: 'var(--color-surface-2)',
+  border: '1px solid var(--color-line)',
   borderRadius: 8,
   fontSize: 12,
-  color: '#e2e8f0',
+  color: 'var(--color-ink)',
 }
 
-const AXIS_TICK = { fontSize: 10, fill: 'rgba(148,163,184,0.85)' }
+const AXIS_TICK = { fontSize: 10, fill: 'var(--chart-tick)' }
 
 /** Short course label for a crowded x-axis: "CS301 · Databases" -> "CS301". */
 function codeOf(subject: string) {
@@ -51,16 +50,6 @@ function codeOf(subject: string) {
 function avgOf(values: (number | null)[]) {
   const nums = values.filter((v): v is number => v != null)
   return nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null
-}
-
-function SectionTitle({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2.5">
-      <CrystalMark size="sm" spinOnView />
-      <h2 className="text-sm font-semibold text-ink">{children}</h2>
-      {aside ? <span className="ml-auto">{aside}</span> : null}
-    </div>
-  )
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
@@ -137,13 +126,13 @@ function MarksChart({ points, compare }: { points: BarPoint[]; compare: boolean 
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-        <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
+        <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
         <XAxis dataKey="label" tick={AXIS_TICK} interval={0} />
         <YAxis domain={[0, 100]} tick={AXIS_TICK} />
-        <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: 'rgba(148,163,184,0.06)' }} />
+        <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: 'var(--chart-cursor)' }} />
         {compare ? (
           <>
-            <Legend wrapperStyle={{ fontSize: 10, color: 'rgba(148,163,184,0.9)' }} />
+            <Legend wrapperStyle={{ fontSize: 10, color: 'var(--chart-tick)' }} />
             <Bar dataKey="primary" name="IA1" fill="#7c5cfa" radius={[3, 3, 0, 0]} maxBarSize={20} />
             <Bar dataKey="secondary" name="IA2" fill="#4ade80" radius={[3, 3, 0, 0]} maxBarSize={20} />
           </>
@@ -161,74 +150,17 @@ function AttendanceChart({ points }: { points: { label: string; value: number | 
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-        <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
+        <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
         <XAxis dataKey="label" tick={AXIS_TICK} interval={0} />
         <YAxis domain={[0, 100]} tick={AXIS_TICK} />
         <Tooltip
           contentStyle={CHART_TOOLTIP}
-          cursor={{ fill: 'rgba(148,163,184,0.06)' }}
+          cursor={{ fill: 'var(--chart-cursor)' }}
           formatter={(v) => [`${v}%`, 'Attendance']}
         />
         <Bar dataKey="value" name="Attendance" fill="#7dd3fc" radius={[3, 3, 0, 0]} maxBarSize={32} />
       </BarChart>
     </ResponsiveContainer>
-  )
-}
-
-/* ------------------------------------------------------------------ *
- * Student: the compact prediction card
- * ------------------------------------------------------------------ */
-
-function StudentRiskCard({ ml, focusRow }: { ml: MlSummary | null; focusRow: InsightRow | null }) {
-  const latest = ml?.latest ?? null
-  // A score built partly on imputed features is not a real prediction — say so
-  // instead of showing a confident-looking number.
-  const ready = latest != null && latest.imputed.length === 0
-
-  return (
-    <section className="glass-ice rounded-xl p-4">
-      <SectionTitle
-        aside={
-          <span className="font-mono text-[10px] tracking-[0.12em] text-muted uppercase">
-            {ml?.model ?? 'dropout-risk model'}
-          </span>
-        }
-      >
-        Predicted risk
-      </SectionTitle>
-
-      {ready ? (
-        <>
-          <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-2">
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Level</p>
-              <p className={clsx('mt-0.5 text-2xl font-semibold tracking-tight', mlRiskStyles[latest.risk].text)}>
-                {latest.risk}
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Risk score</p>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-ink">
-                {latest.score}
-                <span className="ml-1 text-xs font-normal text-muted">/ 100</span>
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">Confidence</p>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{latest.confidence}%</p>
-            </div>
-          </div>
-          {focusRow && (
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">{nextStepFor(focusRow)}</p>
-          )}
-        </>
-      ) : (
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
-          Not enough signal to score yet — the model needs your marks and attendance together. The
-          charts below show what is still missing.
-        </p>
-      )}
-    </section>
   )
 }
 
@@ -273,7 +205,7 @@ function CourseRollup({ courses }: { courses: CourseInsight[] }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {courses.map((c) => (
-        <div key={c.id} className="rounded-xl border border-ice/10 bg-white/[0.03] px-4 py-3.5">
+        <div key={c.id} className="rounded-xl border border-ice/10 tint-subtle px-4 py-3.5">
           <div className="flex items-start justify-between gap-3">
             <p className="text-sm font-semibold text-ink">{c.subject}</p>
             <span
@@ -430,7 +362,7 @@ function Governance({ model }: { model: ModelGovernance | null }) {
           { k: 'Students fully observed', v: `${model.coverage.pct}%` },
         ] as const
       ).map((x) => (
-        <div key={x.k} className="rounded-xl border border-ice/10 bg-white/[0.03] px-4 py-3">
+        <div key={x.k} className="rounded-xl border border-ice/10 tint-subtle px-4 py-3">
           <p className="font-mono text-[9px] tracking-[0.12em] text-muted uppercase">{x.k}</p>
           <p className="mt-1 text-lg font-semibold tabular-nums text-ink">{x.v}</p>
         </div>
@@ -570,12 +502,8 @@ export function AnalyticsPage() {
         { label: 'Avg attendance', value: avgAttendance != null ? String(avgAttendance) : '—', unit: '%' },
       ]
 
-  const focusRow = isStudent
-    ? ([...insights.rows].sort((a, b) => b.score - a.score)[0] ?? null)
-    : null
-
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="rise-grid mx-auto max-w-6xl space-y-6">
       <PageHeader
         eyebrow="Insights"
         title={isStudent ? 'Your analysis' : 'Risk analytics'}
@@ -599,8 +527,6 @@ export function AnalyticsPage() {
           <StatChip key={s.label} label={s.label} value={s.value} unit={s.unit} tone={s.tone} />
         ))}
       </div>
-
-      {isStudent && <StudentRiskCard ml={ml} focusRow={focusRow} />}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard

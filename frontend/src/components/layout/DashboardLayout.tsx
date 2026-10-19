@@ -1,6 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import clsx from 'clsx'
 import { Sidebar } from './Sidebar'
 import { TopNavbar } from './TopNavbar'
 
@@ -9,13 +8,35 @@ export function DashboardLayout() {
   const { pathname } = useLocation()
   const isChat = pathname === '/app/ai'
 
+  /* Cursor-tracked ambient light — pure decoration for the spatial stage. */
+  const auraRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (isChat) return
+    function handleMove(e: PointerEvent) {
+      auraRef.current?.style.setProperty('--mx', `${e.clientX}px`)
+      auraRef.current?.style.setProperty('--my', `${e.clientY}px`)
+    }
+    window.addEventListener('pointermove', handleMove)
+    return () => window.removeEventListener('pointermove', handleMove)
+  }, [isChat])
+
   return (
-    <div className="min-h-screen bg-bg text-ink landing-frost">
+    <div className="app-shell grain relative min-h-screen bg-bg text-ink landing-frost">
+      <div className="aurora" aria-hidden>
+        <span className="aurora-orb orb-a" />
+        <span className="aurora-orb orb-b" />
+        <span className="aurora-orb orb-c" />
+      </div>
+      <div ref={auraRef} className="aura-follow" aria-hidden />
+
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="lg:pl-56">
+      <div className="relative z-10 lg:pl-56">
         <TopNavbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className={clsx('animate-fade-in', isChat ? 'p-0' : 'p-5 sm:p-6 lg:p-8')}>
-          <Outlet />
+        <main className={isChat ? 'p-0' : 'p-5 sm:p-6 lg:p-8'}>
+          {/* Keyed by route so every navigation replays the spatial entrance. */}
+          <div key={pathname} className="page-enter">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

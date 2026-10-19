@@ -8,6 +8,7 @@ import { clubsRoutes } from './routes/clubs.routes.js'
 import { lmsRoutes } from './routes/lms.routes.js'
 import { analyticsRoutes } from './routes/analytics.routes.js'
 import { mlRoutes } from './routes/ml.routes.js'
+import { studyPlannerRoutes } from './routes/studyplanner.routes.js'
 import { authRoutes } from './routes/auth.routes.js'
 import { optionalAuth } from './middleware/auth.js'
 
@@ -27,6 +28,7 @@ export function createApp() {
   app.use('/api/lms', lmsRoutes)
   app.use('/api/analytics', analyticsRoutes)
   app.use('/api/analytics/ml', mlRoutes)
+  app.use('/api/study-planner', studyPlannerRoutes)
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' })

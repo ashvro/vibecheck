@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import {
   AtSign,
+  BookOpen,
   CalendarDays,
   GraduationCap,
   Lock,
@@ -9,9 +10,11 @@ import {
   Pencil,
   ShieldCheck,
   Sparkles,
+  Users,
   UsersRound,
 } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
+import { PageHeader } from '../../components/PageHeader'
 import { api, getUser } from '../../lib/api'
 
 type ProfileStats = {
@@ -24,6 +27,17 @@ type ProfileStats = {
 }
 
 type ClubSummary = { id: number; name: string; members: number; tags: string[] }
+
+/** The slice of a course the staff profile shows: how big it is and who owns it. */
+type LmsCourse = {
+  id: number
+  name: string
+  code: string
+  instructorId: number | null
+  color: string | null
+  classCount: number
+  studentCount: number
+}
 const VIBE_TAG_RE = /^[A-Za-z0-9_]{3,20}$/
 type TagStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
 type MeResponse = {
@@ -94,11 +108,19 @@ export function ProfilePage() {
   const [tagDraft, setTagDraft] = useState('')
   const [tagStatus, setTagStatus] = useState<TagStatus>('idle')
   const [savingTag, setSavingTag] = useState(false)
+  const [myCourses, setMyCourses] = useState<LmsCourse[]>([])
+  const [lmsStats, setLmsStats] = useState<{ courses: number; students: number } | null>(null)
 
   const storedUser = getUser()
+  // Teaching accounts get a teaching-shaped profile. The role is fixed at
+  // sign-in, so the cached copy can branch on before /api/auth/me lands.
+  const storedRole = String(storedUser?.role ?? 'student')
+  const isStaff = storedRole === 'teacher' || storedRole === 'admin'
+  const roleLabel = isStaff ? (storedRole === 'admin' ? 'Admin' : 'Teacher') : 'Student'
+  const myId = Number(me?.id ?? storedUser?.id ?? 0)
   // Show the tag from the server once loaded, else the one cached at sign-in/sign-up.
   const displayTag = (me ? (me.vibeTag || '') : String(storedUser?.vibeTag || '')).trim()
-  const name = me?.name || (storedUser?.name as string) || 'Student'
+  const name = me?.name || (storedUser?.name as string) || (isStaff ? 'Faculty' : 'Student')
   const email = me?.email || (storedUser?.email as string) || ''
   const major = me?.major ?? null
   const year = me?.year ?? null
@@ -140,6 +162,33 @@ export function ProfilePage() {
     if (!me) return
     api.patch('/api/auth/preferences', { nudges: notifications, nightMode }).catch(() => {})
   }, [notifications, nightMode, me])
+
+  // Teaching summary for the staff profile — students never fetch this.
+  useEffect(() => {
+    if (!isStaff) return
+    api.get<{ courses: number; students: number }>('/api/lms/stats').then(setLmsStats).catch(() => {})
+    api
+      .get<Record<string, unknown>[]>('/api/lms/courses')
+      .then((raw) => {
+        if (!Array.isArray(raw)) return
+        setMyCourses(
+          raw.map((c) => ({
+            id: Number(c.id ?? 0),
+            name: String(c.name ?? ''),
+            code: String(c.code ?? ''),
+            instructorId: c.instructorId == null ? null : Number(c.instructorId),
+            color: c.color == null ? null : String(c.color),
+            classCount: Number(c.classCount ?? 0),
+            studentCount: Number(c.studentCount ?? 0),
+          })),
+        )
+      })
+      .catch(() => {})
+  }, [isStaff])
+
+  // Admins see the whole catalog; teachers only the courses assigned to them.
+  const taught =
+    isStaff && storedRole === 'admin' ? myCourses : myCourses.filter((c) => c.instructorId === myId)
 
   // Live availability while editing your tag (your own current tag counts as available).
   useEffect(() => {
@@ -245,25 +294,22 @@ export function ProfilePage() {
         aria-hidden
       />
 
-      <div className="relative z-10 mx-auto max-w-5xl space-y-8">
-        <div className="flex flex-col gap-6 border-b border-line pb-8 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="mb-3 flex items-center gap-3">
-              <CrystalMark spinOnView />
-              <p className="font-mono text-[11px] tracking-[0.18em] text-muted uppercase">Profile</p>
-            </div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
-              Your space, your signal
-            </h1>
-            <p className="mt-1 text-sm text-muted">
-              Personal details, well-being preferences and club memberships in one place.
-            </p>
-          </div>
-          <span className="inline-flex items-center gap-2 self-start rounded-full border border-ice/12 bg-surface-2/60 px-3 py-1.5 font-mono text-[10px] tracking-[0.16em] text-ice/70 uppercase sm:self-end">
-            <Sparkles className="h-3.5 w-3.5 text-ice/50" />
-            Student · verified
-          </span>
-        </div>
+      <div className="rise-grid relative z-10 mx-auto max-w-5xl space-y-8">
+        <PageHeader
+          eyebrow="Profile"
+          title="Your space, your signal"
+          description={
+            isStaff
+              ? 'Your teaching profile, courses and portal preferences in one place.'
+              : 'Personal details, well-being preferences and club memberships in one place.'
+          }
+          aside={
+            <span className="inline-flex items-center gap-2 rounded-full border border-ice/12 bg-surface-2/60 px-3 py-1.5 font-mono text-[10px] tracking-[0.16em] text-ice/70 uppercase">
+              <Sparkles className="h-3.5 w-3.5 text-ice/50" />
+              {roleLabel} · verified
+            </span>
+          }
+        />
 
         <section className="glass-ice group relative overflow-hidden rounded-xl p-6">
           <div className="chat-shine pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden />
@@ -282,7 +328,11 @@ export function ProfilePage() {
                 {name}
               </h2>
               <p className="mt-1 font-mono text-[11px] tracking-[0.16em] text-muted uppercase">
-                {[major, year].filter(Boolean).join(' · ') || 'No academic details set'}
+                {isStaff
+                  ? // Staff reuse the same two profile fields as students:
+                    // major = department, year = job title.
+                    [year, major].filter(Boolean).join(' · ') || 'No department set'
+                  : [major, year].filter(Boolean).join(' · ') || 'No academic details set'}
               </p>
               {displayTag ? (
                 <button
@@ -310,15 +360,29 @@ export function ProfilePage() {
                     <AtSign className="h-3.5 w-3.5 text-ice/50" /> {email}
                   </span>
                 )}
-                <span className="flex items-center gap-1.5">
-                  <GraduationCap className="h-3.5 w-3.5 text-ice/50" /> CGPA {stats?.cgpa != null ? stats.cgpa.toFixed(1) : '—'}
-                </span>
+                {isStaff ? (
+                  <span className="flex items-center gap-1.5">
+                    <Users className="h-3.5 w-3.5 text-ice/50" />
+                    {lmsStats ? `${lmsStats.students} students overall` : '— students'}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <GraduationCap className="h-3.5 w-3.5 text-ice/50" /> CGPA {stats?.cgpa != null ? stats.cgpa.toFixed(1) : '—'}
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="flex flex-col gap-2 sm:items-end">
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-soft/25 bg-emerald-soft/10 px-3 py-1 font-mono text-[9px] tracking-[0.16em] text-emerald-soft uppercase">
-                <ShieldCheck className="h-3 w-3" /> {stats?.avgAttendance != null && stats.avgAttendance >= 80 ? 'All clear' : stats?.avgAttendance != null ? 'Monitor' : 'No data'}
+                <ShieldCheck className="h-3 w-3" />{' '}
+                {isStaff
+                  ? `${roleLabel} access`
+                  : stats?.avgAttendance != null && stats.avgAttendance >= 80
+                    ? 'All clear'
+                    : stats?.avgAttendance != null
+                      ? 'Monitor'
+                      : 'No data'}
               </span>
               {createdAt && (
                 <span className="inline-flex items-center gap-2 rounded-full border border-ice/12 bg-ice/[0.05] px-3 py-1 font-mono text-[9px] tracking-[0.16em] text-ice/60 uppercase">
@@ -330,12 +394,24 @@ export function ProfilePage() {
         </section>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: 'Posts', value: String(stats?.posts ?? 0), unit: 'total' },
-            { label: 'Courses enrolled', value: String(stats?.enrollments ?? 0), unit: 'active' },
-            { label: 'Attendance', value: stats?.avgAttendance != null ? `${stats.avgAttendance}%` : '—', unit: 'avg' },
-            { label: 'Risk status', value: stats?.avgAttendance != null && stats.avgAttendance >= 80 ? 'Low' : stats?.avgAttendance != null ? 'Moderate' : '—', unit: 'clear' },
-          ].map(({ label, value, unit }) => (
+          {(isStaff
+            ? [
+                { label: 'Posts', value: String(stats?.posts ?? 0), unit: 'total' },
+                { label: 'Courses taught', value: String(taught.length), unit: 'active' },
+                { label: 'Students', value: lmsStats ? String(lmsStats.students) : '—', unit: 'overall' },
+                {
+                  label: 'Classes held',
+                  value: String(taught.reduce((sum, c) => sum + c.classCount, 0)),
+                  unit: 'taken',
+                },
+              ]
+            : [
+                { label: 'Posts', value: String(stats?.posts ?? 0), unit: 'total' },
+                { label: 'Courses enrolled', value: String(stats?.enrollments ?? 0), unit: 'active' },
+                { label: 'Attendance', value: stats?.avgAttendance != null ? `${stats.avgAttendance}%` : '—', unit: 'avg' },
+                { label: 'Risk status', value: stats?.avgAttendance != null && stats.avgAttendance >= 80 ? 'Low' : stats?.avgAttendance != null ? 'Moderate' : '—', unit: 'clear' },
+              ]
+          ).map(({ label, value, unit }) => (
             <div key={label} className="glass-ice rounded-xl px-4 py-3.5">
               <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
                 {label}
@@ -411,28 +487,65 @@ export function ProfilePage() {
           <section className="glass-ice p-6">
             <div className="flex items-center gap-2.5">
               <CrystalMark size="sm" spinOnView />
-              <h2 className="text-sm font-semibold text-ink">My clubs</h2>
+              <h2 className="text-sm font-semibold text-ink">
+                {isStaff ? 'Courses I teach' : 'My clubs'}
+              </h2>
             </div>
             <ul className="mt-3 divide-y divide-line/60 border-y border-line/60">
-              {clubs.length === 0 && (
-                <li className="py-4 text-center text-sm text-muted">No clubs joined yet.</li>
+              {isStaff ? (
+                <>
+                  {taught.length === 0 && (
+                    <li className="py-4 text-center text-sm text-muted">
+                      No courses assigned yet — create one in the LMS portal, or ask an admin to
+                      assign you one.
+                    </li>
+                  )}
+                  {taught.map((c) => (
+                    <li key={c.id} className="flex items-center gap-3 py-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ice/15 bg-ice/[0.06] text-ice">
+                        <BookOpen className="h-4 w-4" strokeWidth={1.75} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-ink/90">
+                          <span className="font-mono text-[11px] tracking-[0.08em] text-ice">
+                            {c.code}
+                          </span>{' '}
+                          {c.name}
+                        </span>
+                        <span className="font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+                          {c.studentCount} students · {c.classCount} classes held
+                        </span>
+                      </span>
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: c.color ?? '#8b5cf6' }}
+                      />
+                    </li>
+                  ))}
+                </>
+              ) : (
+                <>
+                  {clubs.length === 0 && (
+                    <li className="py-4 text-center text-sm text-muted">No clubs joined yet.</li>
+                  )}
+                  {clubs.map((c) => (
+                    <li key={c.id} className="flex items-center gap-3 py-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ice/15 bg-ice/[0.06] text-ice">
+                        <UsersRound className="h-4 w-4" strokeWidth={1.75} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-ink/90">
+                          {c.name}
+                        </span>
+                        <span className="font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+                          {c.tags[0] ?? 'General'} · {c.members} members
+                        </span>
+                      </span>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-soft" />
+                    </li>
+                  ))}
+                </>
               )}
-              {clubs.map((c) => (
-                <li key={c.id} className="flex items-center gap-3 py-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ice/15 bg-ice/[0.06] text-ice">
-                    <UsersRound className="h-4 w-4" strokeWidth={1.75} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-ink/90">
-                      {c.name}
-                    </span>
-                    <span className="font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
-                      {c.tags[0] ?? 'General'} · {c.members} members
-                    </span>
-                  </span>
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-soft" />
-                </li>
-              ))}
             </ul>
           </section>
         </div>
@@ -473,8 +586,12 @@ export function ProfilePage() {
               </span>
             </div>
             <Toggle
-              label="Daily wellness nudges"
-              hint="Gentle reminders and support prompts when risk signals dip"
+              label={isStaff ? 'Daily nudges' : 'Daily wellness nudges'}
+              hint={
+                isStaff
+                  ? 'Reminders for classes, grading and community activity'
+                  : 'Gentle reminders and support prompts when risk signals dip'
+              }
               on={notifications}
               onChange={setNotifications}
             />
@@ -490,7 +607,9 @@ export function ProfilePage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-2 text-xs text-muted">
             <Lock className="h-3.5 w-3.5 text-ice/50" />
-            Your data stays yours — nothing is shared with faculty without consent.
+            {isStaff
+              ? 'Your data stays yours — nothing here is shared with students.'
+              : 'Your data stays yours — nothing is shared with faculty without consent.'}
           </p>
           <div className="flex items-center gap-2">
             {saved && (
@@ -531,20 +650,24 @@ export function ProfilePage() {
                   />
                 </div>
                 <div>
-                  <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">Major / Programme</label>
+                  <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+                    {isStaff ? 'Department / School' : 'Major / Programme'}
+                  </label>
                   <input
                     value={editDraft.major}
                     onChange={(e) => setEditDraft((d) => ({ ...d, major: e.target.value }))}
-                    placeholder="e.g. B.S. Computer Science"
+                    placeholder={isStaff ? 'e.g. Department of Computer Science' : 'e.g. B.S. Computer Science'}
                     className="mt-1.5 w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
                   />
                 </div>
                 <div>
-                  <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">Year</label>
+                  <label className="block font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
+                    {isStaff ? 'Title' : 'Year'}
+                  </label>
                   <input
                     value={editDraft.year}
                     onChange={(e) => setEditDraft((d) => ({ ...d, year: e.target.value }))}
-                    placeholder="e.g. Year 3"
+                    placeholder={isStaff ? 'e.g. Assistant Professor' : 'e.g. Year 3'}
                     className="mt-1.5 w-full rounded-lg border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
                   />
                 </div>

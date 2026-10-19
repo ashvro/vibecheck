@@ -8,14 +8,29 @@ import { CommunityPage } from './pages/dashboard/CommunityPage'
 import { ClubsPage } from './pages/dashboard/ClubsPage'
 import { LMSPage } from './pages/dashboard/LMSPage'
 import { AnalyticsPage } from './pages/dashboard/AnalyticsPage'
+import { StudyPlannerPage } from './pages/dashboard/StudyPlannerPage'
 import { ProfilePage } from './pages/dashboard/ProfilePage'
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={
+            <div className="theme-dark">
+              <LandingPage />
+            </div>
+          }
+        />
+        <Route
+          path="/login"
+          element={
+            <div className="theme-dark">
+              <LoginPage />
+            </div>
+          }
+        />
         <Route path="/app" element={<DashboardLayout />}>
           <Route index element={<OverviewPage />} />
           <Route path="ai" element={<AIAssistantPage />} />
@@ -23,6 +38,7 @@ export default function App() {
           <Route path="clubs" element={<ClubsPage />} />
           <Route path="lms" element={<LMSPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
+          <Route path="study-planner" element={<StudyPlannerPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

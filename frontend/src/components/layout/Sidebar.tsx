@@ -5,6 +5,7 @@ import {
   BarChart3,
   BookOpen,
   Bot,
+  CalendarRange,
   LayoutDashboard,
   UserRound,
   Users,
@@ -22,6 +23,7 @@ const links: { to: string; label: string; icon: LucideIcon }[] = [
   { to: '/app/clubs', label: 'Clubs', icon: UsersRound },
   { to: '/app/lms', label: 'LMS Portal', icon: BookOpen },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/study-planner', label: 'Study Planner', icon: CalendarRange },
   { to: '/app/profile', label: 'Profile', icon: UserRound },
 ]
 
@@ -60,9 +62,9 @@ function NavCard({
       onPointerMove={handleMove}
       className={({ isActive }) =>
         clsx(
-          'group relative flex items-center gap-2.5 overflow-hidden rounded-lg border px-2.5 py-2 text-[13px] font-medium transition-colors',
+          'nav-card group relative flex items-center gap-2.5 overflow-hidden rounded-lg border px-2.5 py-2 text-[13px] font-medium transition-colors',
           isActive
-            ? 'border-ice/25 bg-surface-2/80 text-ice'
+            ? 'nav-active-glow border-ice/25 bg-surface-2/80 text-ice'
             : 'border-ice/10 bg-surface-2/40 text-ice/55 hover:border-ice/20 hover:bg-surface-2/60 hover:text-ice',
         )
       }
@@ -101,11 +103,17 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside
         className={clsx(
-          'fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-ice/10 bg-thaw-deep transition-transform duration-300 lg:translate-x-0',
+          'nav-rail fixed inset-y-0 left-0 z-40 flex w-56 flex-col overflow-hidden border-r border-ice/10 bg-thaw-deep transition-transform duration-300 lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="border-b border-ice/10">
+        {/* Ambient bloom so the rail reads as a lit plane, not a flat panel. */}
+        <span
+          className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-violet/10 blur-3xl"
+          aria-hidden
+        />
+
+        <div className="relative border-b border-ice/10">
           <Link
             to="/"
             className="flex items-center gap-1.5 px-4 py-2 font-mono text-[10px] tracking-[0.14em] text-ice/40 uppercase transition hover:text-ice"
@@ -118,7 +126,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1.5 overflow-y-auto p-2">
+        <nav className="rise-grid relative flex-1 space-y-1.5 overflow-y-auto p-2">
           {links.map(({ to, label, icon }) => (
             <NavCard key={to} to={to} label={label} icon={icon} onClose={onClose} />
           ))}

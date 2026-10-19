@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { ArrowBigUp, AtSign, Clock, MessageCircle, Send, Share2, Tag, Trash2 } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
+import { PageHeader } from '../../components/PageHeader'
 import { api, getUser } from '../../lib/api'
 import { connectSocket } from '../../lib/socket'
 
@@ -262,17 +263,12 @@ export function CommunityPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <div>
-        <div className="mb-3 flex items-center gap-3">
-          <CrystalMark spinOnView />
-          <p className="font-mono text-[11px] tracking-[0.18em] text-muted uppercase">Campus</p>
-        </div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Community</h1>
-        <p className="mt-1 text-sm text-muted">
-          Campus conversations — optional anonymity
-        </p>
-      </div>
+    <div className="rise-grid mx-auto max-w-5xl space-y-8">
+      <PageHeader
+        eyebrow="Campus"
+        title="Community"
+        description="Campus conversations — optional anonymity"
+      />
 
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-3">
         <div className="glass-ice rounded-xl px-3.5 py-3 text-center">

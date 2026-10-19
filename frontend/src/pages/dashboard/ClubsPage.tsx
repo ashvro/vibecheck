@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import clsx from 'clsx'
 import { ArrowLeft, Plus, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
+import { PageHeader } from '../../components/PageHeader'
 import { api, getUser } from '../../lib/api'
 import { connectSocket } from '../../lib/socket'
 
@@ -499,17 +500,12 @@ export function ClubsPage() {
 
   /* ---------- Hub: my clubs + discover ---------- */
   return (
-    <div className="mx-auto max-w-6xl space-y-10">
-      <div>
-        <div className="mb-3 flex items-center gap-3">
-          <CrystalMark spinOnView />
-          <p className="font-mono text-[11px] tracking-[0.18em] text-muted uppercase">Network</p>
-        </div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
-          Clubs & Network
-        </h1>
-        <p className="mt-1 text-sm text-muted">Find your people on campus</p>
-      </div>
+    <div className="rise-grid mx-auto max-w-6xl space-y-10">
+      <PageHeader
+        eyebrow="Network"
+        title="Clubs & Network"
+        description="Find your people on campus"
+      />
 
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,6fr)_minmax(0,4fr)]">
         <section>
