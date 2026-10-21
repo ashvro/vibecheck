@@ -20,42 +20,7 @@ export function DashboardLayout() {
   }, [])
 
   return (
-    <div
-      className="app-shell grain landing-frost relative min-h-screen text-ink"
-      style={{ background: '#07050f' }}
-    >
-      {/* Glow blobs for glass effect */}
-      <div
-        className="pointer-events-none fixed"
-        style={{
-          top: '-120px',
-          left: '-80px',
-          width: 420,
-          height: 420,
-          borderRadius: '50%',
-          background: 'rgba(139,92,246,.75)',
-          filter: 'blur(90px)',
-          opacity: 0.7,
-          zIndex: 0,
-        }}
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none fixed"
-        style={{
-          bottom: '-100px',
-          right: '-60px',
-          width: 380,
-          height: 380,
-          borderRadius: '50%',
-          background: 'rgba(168,85,247,.50)',
-          filter: 'blur(90px)',
-          opacity: 0.6,
-          zIndex: 0,
-        }}
-        aria-hidden
-      />
-
+    <div className="app-shell grain landing-frost relative min-h-screen bg-bg text-ink">
       <div className="aurora" aria-hidden>
         <span className="aurora-orb orb-a" />
         <span className="aurora-orb orb-b" />
