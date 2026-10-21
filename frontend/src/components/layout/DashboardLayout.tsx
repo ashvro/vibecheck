@@ -112,25 +112,33 @@ export function DashboardLayout() {
           style={{
             maxWidth: 1300,
             borderRadius: 44,
-            border: '1.6px solid rgba(255,255,255,.18)',
-            boxShadow: '0 0 40px rgba(140,100,255,.28), inset 0 1px 0 rgba(255,255,255,.15)',
-            background: 'rgba(26,22,52,.4)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            padding: '24px',
-            minHeight: 'calc(100vh - 282px)',
+            padding: '1.6px',
+            background: 'linear-gradient(135deg, #7860FF 0%, #D060F2 100%)',
+            boxShadow: '0 0 40px rgba(140,100,255,.28)',
           }}
         >
-          {/* Bottom fade mask */}
           <div
             style={{
-              maskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
-              WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
+              borderRadius: 42,
+              background: 'rgba(26,22,52,.7)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              padding: '24px',
+              minHeight: 'calc(100vh - 282px)',
+              overflow: 'hidden',
             }}
           >
-            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 150 }}>
-              <div key={pathname} className="page-enter">
-                <Outlet />
+            {/* Bottom fade mask */}
+            <div
+              style={{
+                maskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
+                WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
+              }}
+            >
+              <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 150 }}>
+                <div key={pathname} className="page-enter">
+                  <Outlet />
+                </div>
               </div>
             </div>
           </div>
