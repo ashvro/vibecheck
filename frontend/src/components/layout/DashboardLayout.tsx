@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { Menu } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { TopNavbar } from './TopNavbar'
 
@@ -19,7 +20,42 @@ export function DashboardLayout() {
   }, [])
 
   return (
-    <div className="app-shell grain landing-frost relative min-h-screen bg-bg text-ink">
+    <div
+      className="app-shell grain landing-frost relative min-h-screen text-ink"
+      style={{ background: '#07050f' }}
+    >
+      {/* Glow blobs for glass effect */}
+      <div
+        className="pointer-events-none fixed"
+        style={{
+          top: '-120px',
+          left: '-80px',
+          width: 420,
+          height: 420,
+          borderRadius: '50%',
+          background: 'rgba(139,92,246,.55)',
+          filter: 'blur(90px)',
+          opacity: 0.7,
+          zIndex: 0,
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none fixed"
+        style={{
+          bottom: '-100px',
+          right: '-60px',
+          width: 380,
+          height: 380,
+          borderRadius: '50%',
+          background: 'rgba(236,72,153,.42)',
+          filter: 'blur(90px)',
+          opacity: 0.6,
+          zIndex: 0,
+        }}
+        aria-hidden
+      />
+
       <div className="aurora" aria-hidden>
         <span className="aurora-orb orb-a" />
         <span className="aurora-orb orb-b" />
@@ -29,7 +65,17 @@ export function DashboardLayout() {
 
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="relative z-10 lg:pl-56">
+      <div className="relative z-10 lg:pl-[332px]">
+        {/* Mobile hamburger */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="fixed top-4 left-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white backdrop-blur-md lg:hidden"
+          aria-label="Open menu"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+
         <TopNavbar onMenuClick={() => setSidebarOpen(true)} />
         <main className="p-5 sm:p-6 lg:p-8">
           {/* Keyed by route so every navigation replays the spatial entrance. */}
