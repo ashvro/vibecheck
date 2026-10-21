@@ -113,14 +113,14 @@ export function DashboardLayout() {
             maxWidth: 1300,
             borderRadius: 44,
             padding: '1.6px',
-            background: 'linear-gradient(135deg, #7860FF 0%, #D060F2 100%)',
-            boxShadow: '0 0 40px rgba(140,100,255,.28)',
+            background: 'linear-gradient(135deg, rgba(120,80,220,.6) 0%, rgba(180,70,200,.5) 100%)',
+            boxShadow: '0 0 30px rgba(100,60,200,.15)',
           }}
         >
           <div
             style={{
               borderRadius: 42,
-              background: 'rgba(26,22,52,.7)',
+              background: 'rgba(18,14,35,.8)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
               padding: '24px',
