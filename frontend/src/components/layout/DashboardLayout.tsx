@@ -119,7 +119,7 @@ export function DashboardLayout() {
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
             padding: '24px',
-            minHeight: 'calc(100vh - 282px)',
+            minHeight: 'calc(100vh - 310px)',
           }}
         >
           {/* Bottom fade mask */}
@@ -129,7 +129,7 @@ export function DashboardLayout() {
               WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
             }}
           >
-            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 150 }}>
+            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 200 }}>
               <div key={pathname} className="page-enter">
                 <Outlet />
               </div>
