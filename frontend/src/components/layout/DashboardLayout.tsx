@@ -112,14 +112,13 @@ export function DashboardLayout() {
           style={{
             maxWidth: 1300,
             borderRadius: 44,
-            border: '1.6px solid transparent',
-            borderImage: 'linear-gradient(135deg, #7860FF, #D060F2) 1',
-            boxShadow: '0 0 40px rgba(140,100,255,.28)',
+            border: '1.6px solid rgba(255,255,255,.18)',
+            boxShadow: '0 0 40px rgba(140,100,255,.28), inset 0 1px 0 rgba(255,255,255,.15)',
             background: 'rgba(26,22,52,.4)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
             padding: '24px',
-            minHeight: 'calc(100vh - 310px)',
+            minHeight: 'calc(100vh - 250px)',
           }}
         >
           {/* Bottom fade mask */}
@@ -129,7 +128,7 @@ export function DashboardLayout() {
               WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
             }}
           >
-            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 200 }}>
+            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 170 }}>
               <div key={pathname} className="page-enter">
                 <Outlet />
               </div>
