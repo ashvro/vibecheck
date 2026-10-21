@@ -36,7 +36,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside
         className={clsx(
-          'sidebar-panel fixed top-[72px] left-4 z-30 flex flex-col transition-transform duration-300 lg:translate-x-0',
+          'sidebar-panel fixed top-4 left-4 z-30 flex flex-col transition-transform duration-300 lg:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
         )}
         style={{
@@ -48,7 +48,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           boxShadow: '0 30px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.14)',
           backdropFilter: 'blur(30px)',
           WebkitBackdropFilter: 'blur(30px)',
-          height: 'calc(100vh - 88px)',
+          height: 'calc(100vh - 32px)',
         }}
       >
         {/* Brand header */}

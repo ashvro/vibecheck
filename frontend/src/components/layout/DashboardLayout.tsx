@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Menu } from 'lucide-react'
 import { Sidebar } from './Sidebar'
-import { TopNavbar } from './TopNavbar'
 
 export function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -41,7 +40,6 @@ export function DashboardLayout() {
           <Menu className="h-5 w-5" />
         </button>
 
-        <TopNavbar onMenuClick={() => setSidebarOpen(true)} />
         <main className="p-5 sm:p-6 lg:p-8">
           {/* Keyed by route so every navigation replays the spatial entrance. */}
           <div key={pathname} className="page-enter">
