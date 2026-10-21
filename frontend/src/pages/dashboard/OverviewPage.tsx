@@ -146,7 +146,7 @@ export function OverviewPage() {
         : `Most universities ask for ${ATTENDANCE_MILESTONE}%, so you are ${Math.abs(buffer)} ${Math.abs(buffer) === 1 ? 'point' : 'points'} short.`
 
   return (
-    <div className="rise-grid mx-auto max-w-6xl">
+    <div className="rise-grid mx-auto max-w-6xl min-h-[calc(100vh-120px)] flex flex-col justify-center">
       <header>
         <p className="text-[15px] leading-none text-muted">
           {weekday} {day} {month}, {time}
