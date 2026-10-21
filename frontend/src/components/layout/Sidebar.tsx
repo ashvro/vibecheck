@@ -122,8 +122,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           className="sidebar-profile"
         >
           <div
-            className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-            style={{ background: 'linear-gradient(135deg, #8b5cf6, #ec4899)' }}
+            className="avatar-glow flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+            style={{ background: 'linear-gradient(135deg, #8b5cf6, #ec4899)', boxShadow: '0 0 12px rgba(139,92,246,.4)' }}
           >
             {initial}
           </div>
@@ -131,15 +131,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <span style={{ fontSize: '14.5px', fontWeight: 700, color: '#fff' }}>Your profile</span>
             <span style={{ fontSize: 12, color: '#8f86b6' }}>Settings · Log out</span>
           </div>
-          <span
-            className="shrink-0 rounded-full"
-            style={{
-              width: 10,
-              height: 10,
-              background: '#34d399',
-              boxShadow: '0 0 0 4px rgba(52,211,153,.16)',
-            }}
-          />
         </Link>
       </aside>
     </>
