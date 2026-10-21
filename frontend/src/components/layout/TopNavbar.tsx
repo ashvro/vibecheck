@@ -6,7 +6,7 @@ type TopNavbarProps = {
 
 export function TopNavbar({ onMenuClick }: TopNavbarProps) {
   return (
-    <header className="nav-topbar hairline-grad sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-ice/10 bg-thaw/70 px-4 backdrop-blur-md sm:px-6">
+    <header className="nav-topbar sticky top-0 z-50 flex h-14 items-center gap-3 bg-thaw/70 px-4 backdrop-blur-md sm:px-6">
       <button
         type="button"
         onClick={onMenuClick}
