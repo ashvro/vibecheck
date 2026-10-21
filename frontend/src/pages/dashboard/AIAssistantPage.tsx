@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Send, Plus, MessageSquare, Trash2, Mic, Square, Loader2, Volume2, ChevronDown } from 'lucide-react'
-import { CrystalMark } from '../../components/CrystalMark'
-import VoiceOrb from '../../components/VoiceOrb'
+import { ArrowDown } from 'lucide-react'
 import { api } from '../../lib/api'
 import { streamChat } from '../../lib/stream'
 import {
@@ -17,7 +15,22 @@ import {
   setSelectedVoiceId,
   listTtsVoices,
   getTtsStatus,
+  SpeechStream,
 } from '../../lib/tts'
+import { ChatHistory } from '../../components/assistant/ChatHistory'
+import { ModePills } from '../../components/assistant/ModePills'
+import { VoiceOverlay } from '../../components/assistant/VoiceOverlay'
+import { UrgentHelpDialog } from '../../components/assistant/UrgentHelpDialog'
+import { Composer, DISCLAIMER } from '../../components/assistant/Composer'
+import {
+  AssistantReply,
+  SwitchedDivider,
+  UserBubble,
+  buildTurns,
+  withDividers,
+  type Message,
+} from '../../components/assistant/MessageList'
+import { modeFor } from '../../components/assistant/modes'
 
 type SourceRef = {
   title?: string | null
@@ -32,13 +45,6 @@ type ChatMeta = {
   sources?: SourceRef[]
 }
 
-type Message = {
-  id: number
-  role: 'user' | 'assistant'
-  text: string
-  meta?: ChatMeta
-}
-
 type ChatSession = {
   id: number
   title: string
@@ -47,49 +53,6 @@ type ChatSession = {
   messageCount: number
   preview?: string | null
 }
-
-const BARS = [40, 65, 100, 55]
-
-function riskDot(risk?: string | null) {
-  if (risk === 'high' || risk === 'critical') return 'bg-rose-400'
-  if (risk === 'moderate') return 'bg-amber-gentle'
-  if (risk === 'low') return 'bg-emerald-soft'
-  return 'bg-ice/30'
-}
-
-function MoodBars({ className }: { className?: string }) {
-  return (
-    <div className={clsx('flex items-end gap-1', className)}>
-      {BARS.map((h, i) => (
-        <span
-          key={i}
-          className={clsx(
-            'chat-bars-in w-1.5 rounded-sm bg-gradient-to-t from-violet-deep to-violet-soft',
-            i === 2 && 'ring-1 ring-violet-soft/40',
-          )}
-          style={{ height: `${h}%` }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function MetaChips({ meta }: { meta?: ChatMeta }) {
-  if (!meta) return null
-  if (!meta.intent) return null
-
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      {meta.intent && (
-        <span className="rounded border border-ice/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-ice/50 uppercase">
-          {meta.intent}
-        </span>
-      )}
-    </div>
-  )
-}
-
-const GREETING = "Hey — I'm VibeCheck. Here for whatever's on your plate: deadlines, big feelings, career plans, or random 3am thoughts. What's up?"
 
 type BackendMessage = {
   id: number
@@ -124,14 +87,16 @@ function mapBackend(m: BackendMessage): Message {
   }
 }
 
-const GREETING_MSG: Message = { id: 1, role: 'assistant', text: GREETING }
-
-function sessionTime(iso: string) {
-  const d = new Date(iso)
-  const now = new Date()
-  const sameDay = d.toDateString() === now.toDateString()
-  if (sameDay) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+function sessionLabel(s: ChatSession): string {
+  if (s.title && s.title !== 'New chat') {
+    const cleaned = s.title.replace(/\n/g, ' ').trim()
+    return cleaned.length > 48 ? cleaned.slice(0, 45) + '...' : cleaned
+  }
+  if (s.preview) {
+    const cleaned = s.preview.replace(/\n/g, ' ').trim()
+    return cleaned.length > 48 ? cleaned.slice(0, 45) + '...' : cleaned
+  }
+  return 'New chat'
 }
 
 export function AIAssistantPage() {
@@ -139,26 +104,30 @@ export function AIAssistantPage() {
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
-  const [hoveringChat, setHoveringChat] = useState(false)
-  const [hoveringHistory, setHoveringHistory] = useState(false)
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
+  const [voiceOpen, setVoiceOpen] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [voiceChoices, setVoiceChoices] = useState<Array<{ id: string; name: string }>>([])
   const [voiceId, setVoiceId] = useState<string | null>(getSelectedVoiceId())
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null)
-  /** True while the transcript is parked at the newest message. */
+  const [urgentOpen, setUrgentOpen] = useState(false)
+  const [speakingId, setSpeakingId] = useState<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
-  const chatRef = useRef<HTMLDivElement>(null)
-  const historyRef = useRef<HTMLDivElement>(null)
+
   const scrollerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef<number | null>(null)
   const sendAbortRef = useRef<AbortController | null>(null)
   const voiceTurnRef = useRef<{ userId: number; replyId: number; text: string } | null>(null)
-  /** Set to force the next transcript render to the bottom even if the user scrolled up. */
   const forceBottomRef = useRef(false)
+  /** Last id we auto-spoke, so a re-render cannot restart playback. */
+  const autoSpokenRef = useRef<number | null>(null)
+  /** Ids the user asked to hear; the reply is spoken once it is complete. */
+  const speakRequestRef = useRef<number | null>(null)
+  const ttsRef = useRef<{ cancel: () => void } | null>(null)
 
   useEffect(() => {
     sessionIdRef.current = sessionId
@@ -168,11 +137,12 @@ export function AIAssistantPage() {
     prewarmVoice()
     return () => {
       sendAbortRef.current?.abort()
+      ttsRef.current?.cancel()
       void stopVoice()
     }
   }, [])
 
-  // Load the selectable TTS voices once we know a neural provider is wired up.
+  /* Warm the TTS voices so the composer can offer the real list. */
   useEffect(() => {
     let alive = true
     void (async () => {
@@ -181,9 +151,7 @@ export function AIAssistantPage() {
         if (!status.provider || !alive) return
         const voices = await listTtsVoices()
         if (!alive) return
-        const mapped = voices
-          .filter((v) => v.id)
-          .map((v) => ({ id: v.id as string, name: v.name || v.id }))
+        const mapped = voices.filter((v) => v.id).map((v) => ({ id: v.id as string, name: v.name || v.id }))
         setVoiceChoices(mapped)
         const current = getSelectedVoiceId()
         if (!current && status.defaultVoiceId && mapped.some((v) => v.id === status.defaultVoiceId)) {
@@ -203,16 +171,53 @@ export function AIAssistantPage() {
     setSelectedVoiceId(next)
   }
 
+  /* Read one reply aloud through the same pipeline voice mode uses. */
+  async function speak(text: string, id: number) {
+    if (speakingId === id) {
+      ttsRef.current?.cancel()
+      ttsRef.current = null
+      setSpeakingId(null)
+      return
+    }
+    ttsRef.current?.cancel()
+    setSpeakingId(id)
+    // Read only the prose. Speaking a code block aloud is unusable — the
+    // narrator would recite brackets and indentation.
+    const spoken = text
+      .split(/```/)
+      .filter((_, i) => i % 2 === 0)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!spoken) {
+      setSpeakingId(null)
+      return
+    }
+    try {
+      const stream = new SpeechStream()
+      ttsRef.current = stream
+      stream.push(spoken)
+      stream.flush(spoken)
+      await stream.onIdle()
+    } catch {
+      /* playback is best-effort */
+    } finally {
+      if (ttsRef.current) {
+        ttsRef.current = null
+        setSpeakingId((current) => (current === id ? null : current))
+      }
+    }
+  }
+
   const voiceActive = voicePhase !== 'idle'
 
   async function loadMessagesFor(id: number) {
     setLoadingMessages(true)
     try {
       const backendMsgs = await api.get<BackendMessage[]>(`/api/assistant/messages?sessionId=${id}`)
-      const mapped = backendMsgs.map(mapBackend)
-      setMessages(mapped.length ? mapped : [GREETING_MSG])
+      setMessages(backendMsgs.map(mapBackend))
     } catch {
-      setMessages([GREETING_MSG])
+      setMessages([])
     } finally {
       setLoadingMessages(false)
     }
@@ -229,26 +234,23 @@ export function AIAssistantPage() {
 
   useEffect(() => {
     let cancelled = false
-
+    // Load sessions and messages in parallel for faster initial load
     api
       .get<ChatSession[]>('/api/assistant/sessions')
       .then(async (list) => {
         if (cancelled) return
         setSessions(list)
-        if (list.length) {
-          setSessionId(list[0].id)
-          await loadMessagesFor(list[0].id)
-        } else {
-          setMessages([GREETING_MSG])
+        if (list.length && sessionId === null) {
+          const firstId = list[0].id
+          setSessionId(firstId)
+          // Load messages in parallel, don't wait
+          loadMessagesFor(firstId)
         }
       })
-      .catch(() => {
-        if (!cancelled) setMessages([GREETING_MSG])
-      })
+      .catch(() => undefined)
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
-
     return () => {
       cancelled = true
     }
@@ -269,32 +271,26 @@ export function AIAssistantPage() {
     if (!forceBottomRef.current && !atBottom) return
     forceBottomRef.current = false
     setAtBottom(true)
-    // Animate only when the user just sent something; follow a streaming
-    // reply instantly so the view keeps pace with the tokens.
     scrollToBottom(lastMsg?.role === 'user' && lastText.length > 0)
   }, [messages.length, lastText, lastMsg?.role, loadingMessages, voiceActive, atBottom])
+
+  /* Speak a reply once it has finished streaming, if the user asked for it. */
+  useEffect(() => {
+    if (loadingMessages) return
+    const visible = messages.filter((m) => m.role === 'assistant' && m.text.trim())
+    if (!visible.length || visible.length <= (autoSpokenRef.current ?? 0)) return
+    const newest = visible[visible.length - 1]
+    autoSpokenRef.current = visible.length
+    if (speakRequestRef.current === newest.id && !sending && newest.text === messages[messages.length - 1]?.text) {
+      speakRequestRef.current = null
+      void speak(newest.text, newest.id)
+    }
+  }, [messages, sending, loadingMessages])
 
   function handleTranscriptScroll() {
     const el = scrollerRef.current
     if (!el) return
-    const parked = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-    setAtBottom(parked)
-  }
-
-  function handleChatMove(e: PointerEvent<HTMLDivElement>) {
-    const el = chatRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    el.style.setProperty('--gx', `${e.clientX - rect.left}px`)
-    el.style.setProperty('--gy', `${e.clientY - rect.top}px`)
-  }
-
-  function handleHistoryMove(e: PointerEvent<HTMLDivElement>) {
-    const el = historyRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    el.style.setProperty('--gx', `${e.clientX - rect.left}px`)
-    el.style.setProperty('--gy', `${e.clientY - rect.top}px`)
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
   }
 
   async function send() {
@@ -323,9 +319,7 @@ export function AIAssistantPage() {
         onDelta: (value) => {
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === replyMsgId)
-            if (exists) {
-              return prev.map((m) => (m.id === replyMsgId ? { ...m, text: value } : m))
-            }
+            if (exists) return prev.map((m) => (m.id === replyMsgId ? { ...m, text: value } : m))
             return [...prev, { id: replyMsgId, role: 'assistant', text: value }]
           })
         },
@@ -347,11 +341,14 @@ export function AIAssistantPage() {
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
         setMessages((prev) => {
-          const hasReply = prev.some((m) => m.id === replyMsgId)
-          if (hasReply) return prev
+          if (prev.some((m) => m.id === replyMsgId)) return prev
           return [
             ...prev,
-            { id: replyMsgId, role: 'assistant', text: 'Sorry — I lost connection there. Try that again and I\'ll answer straight away.' },
+            {
+              id: replyMsgId,
+              role: 'assistant',
+              text: "Sorry — I lost connection there. Try that again and I'll answer straight away.",
+            },
           ]
         })
       }
@@ -365,17 +362,19 @@ export function AIAssistantPage() {
     setVoiceError(null)
     if (isVoiceActive()) {
       setVoicePhase('idle')
+      setVoiceOpen(false)
       voiceTurnRef.current = null
       await stopVoice()
       return
     }
+    setVoiceOpen(true)
     try {
       await startVoice({
         getSessionId: () => sessionIdRef.current,
         onPhase: setVoicePhase,
         onTurnStart: ({ transcript, meta }) => {
-          // Fires once per event type (transcript, then meta) — the turn must
-          // be created only once so both land on the same message ids.
+          // Fires once per event type (transcript, then meta) — the turn must be
+          // created only once so both land on the same message ids.
           if (!voiceTurnRef.current) {
             const ts = Date.now()
             voiceTurnRef.current = { userId: ts, replyId: ts + 1, text: '' }
@@ -399,9 +398,7 @@ export function AIAssistantPage() {
           turn.text = value
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === turn.replyId)
-            if (exists) {
-              return prev.map((m) => (m.id === turn.replyId ? { ...m, text: value } : m))
-            }
+            if (exists) return prev.map((m) => (m.id === turn.replyId ? { ...m, text: value } : m))
             return [...prev, { id: turn.replyId, role: 'assistant', text: value }]
           })
         },
@@ -442,10 +439,12 @@ export function AIAssistantPage() {
           voiceTurnRef.current = null
           setVoiceError(message)
           setVoicePhase('idle')
+          setVoiceOpen(false)
         },
       })
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : 'Could not start voice.')
+      setVoiceOpen(false)
     }
   }
 
@@ -463,10 +462,10 @@ export function AIAssistantPage() {
       }
       setSessions((prev) => [created, ...prev.filter((s) => s.id !== res.id)])
       setSessionId(res.id)
-      setMessages([GREETING_MSG])
+      setMessages([])
     } catch {
       setSessionId(null)
-      setMessages([GREETING_MSG])
+      setMessages([])
     }
   }
 
@@ -499,7 +498,7 @@ export function AIAssistantPage() {
           await loadMessagesFor(next.id)
         } else {
           setSessionId(null)
-          setMessages([GREETING_MSG])
+          setMessages([])
         }
       }
     } catch {
@@ -507,276 +506,187 @@ export function AIAssistantPage() {
     }
   }
 
-  const lastMeta = [...messages].reverse().find((m) => m.role === 'user')?.meta
-  const statusLine = lastMeta
-    ? lastMeta.riskLevel === 'high' || lastMeta.riskLevel === 'critical'
-      ? `Safety mode · ${lastMeta.riskLevel}`
-      : `${lastMeta.intent ?? 'assistant'} · ${lastMeta.riskLevel ?? 'low'} risk`
-    : 'Intent-aware · safety-first pipeline'
+  /* Mode pills / dividers reflect the latest classified intent in view. */
+  const lastIntent = [...messages].reverse().find((m) => m.role === 'user')?.meta?.intent
+  const currentMode = modeFor(lastIntent).id
+  const firstIntent = messages.find((m) => m.role === 'user')?.meta?.intent
+  const turns = withDividers(buildTurns(messages), modeFor(firstIntent).id)
+  const isEmpty = !loading && !loadingMessages && messages.length === 0
+
+  function guide(text: string) {
+    setInput('Walk me through that slowly, one step at a time.')
+    void text
+  }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-bg">
-      <div className="flex items-center justify-between border-b border-line px-5 py-3 sm:px-8">
-        <div className="flex items-center gap-3">
-          <CrystalMark spinOnView />
-          <div>
-            <h1 className="font-display text-sm font-bold text-ink">AI Assistant</h1>
-            <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
-              <span className={clsx('h-1 w-1 rounded-full', riskDot(lastMeta?.riskLevel))} />
-              {statusLine}
+    <div className="vc-glass relative flex h-[calc(100vh-7.5rem)] min-h-[520px] overflow-hidden rounded-2xl border border-vc-line text-vc-ink shadow-[var(--depth-1)]">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header
+          className={clsx(
+            'flex h-[58px] shrink-0 items-center justify-between gap-4 px-[19px]',
+            !isEmpty && 'border-b border-vc-line',
+          )}
+        >
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] leading-[15px] tracking-[0.12em] text-vc-ink-2 uppercase">
+              Intent-aware · Safety-first pipeline
             </p>
+            <ModePills active={currentMode} className="mt-1" />
           </div>
-        </div>
-      </div>
+          <button
+            type="button"
+            onClick={() => setUrgentOpen(true)}
+            className="shrink-0 text-[13px] font-medium text-vc-alert transition hover:brightness-110"
+          >
+            Need urgent help?
+          </button>
+        </header>
 
-      <div className="flex min-h-0 flex-1 gap-4 px-5 pt-5 pb-6 sm:px-6">
-        {/* History sidebar */}
-        <div
-          ref={historyRef}
-          onPointerMove={handleHistoryMove}
-          onPointerEnter={() => setHoveringHistory(true)}
-          onPointerLeave={() => setHoveringHistory(false)}
-          className="group relative hidden w-64 shrink-0 flex-col overflow-hidden rounded-xl border border-ice/10 bg-surface-2/60 md:flex"
-        >
-          <div
-            className={clsx(
-              'chat-shine pointer-events-none absolute inset-0 z-0 transition-opacity duration-300',
-              hoveringHistory ? 'opacity-100' : 'opacity-0',
-            )}
-            aria-hidden
+        <div className="flex min-h-0 flex-1">
+          <ChatHistory
+            className="ml-[19px] w-[260px] shrink-0"
+            sessions={sessions.map((s) => ({ id: s.id, title: sessionLabel(s) }))}
+            activeId={sessionId}
+            loading={loading}
+            onNewChat={newChat}
+            onSelect={selectSession}
+            onDelete={handleDeleteSession}
+            confirmingDelete={confirmingDelete}
+            search={search}
+            onSearchChange={setSearch}
           />
-          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-            <div className="border-b border-ice/10 p-3">
-              <button
-                type="button"
-                onClick={newChat}
-                className="flex w-full items-center gap-2 rounded-lg border border-ice/10 bg-thaw px-2.5 py-2 text-[12px] font-medium text-ice/70 transition hover:bg-ice/5 hover:text-ice"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New chat
-              </button>
-            </div>
-            <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
-              {!loading && sessions.length === 0 && (
-                <p className="px-2 py-6 text-center text-[11px] leading-relaxed text-ice/40">
-                  No conversations yet.<br />Start one above.
-                </p>
-              )}
-{sessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={clsx(
-                    'group flex items-center rounded-lg transition',
-                    s.id === sessionId ? 'bg-ice/15 text-ice' : 'text-ice/60 hover:bg-ice/5 hover:text-ice/85',
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => selectSession(s.id)}
-                    className={clsx(
-                      'flex min-w-0 flex-1 items-center gap-2.5 rounded-l-lg px-2.5 py-2 text-left',
-                    )}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-[12px] font-medium">{s.title !== 'New chat' ? s.title : (s.preview?.slice(0, 32) ?? 'New chat')}</span>
-                        <span className="shrink-0 text-[9px] text-ice/40">{sessionTime(s.updatedAt)}</span>
-                      </span>
-                      {s.preview && (
-                        <span className="mt-0.5 block truncate text-[10px] text-ice/40">{s.preview}</span>
-                      )}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteSession(e, s.id)}
-                    title={confirmingDelete === s.id ? 'Click again to delete' : 'Delete conversation'}
-                    className={clsx(
-                      'mr-1.5 inline-flex shrink-0 items-center justify-center rounded-md transition',
-                      confirmingDelete === s.id
-                        ? 'bg-rose-500/20 px-2 py-1 font-mono text-[9px] font-semibold tracking-wider text-rose-400 uppercase hover:bg-rose-500/30'
-                        : 'h-6 w-6 opacity-0 text-ice/40 hover:bg-ice/10 hover:text-rose-400 group-hover:opacity-100',
-                    )}
-                  >
-                    {confirmingDelete === s.id ? 'Delete' : <Trash2 className="h-3 w-3" />}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
 
-        {/* Chat box */}
-        <div
-          ref={chatRef}
-          onPointerMove={handleChatMove}
-          onPointerEnter={() => setHoveringChat(true)}
-          onPointerLeave={() => setHoveringChat(false)}
-          className="group relative flex flex-1 flex-col overflow-hidden rounded-xl border border-ice/10 bg-surface-2/60"
-        >
-          <div
-            className={clsx(
-              'chat-shine pointer-events-none absolute inset-0 z-0 transition-opacity duration-300',
-              hoveringChat ? 'opacity-100' : 'opacity-0',
-            )}
-            aria-hidden
-          />
-          <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-            {voiceActive ? (
-              /* Voice stage: the orb is the whole interface. Replies are spoken
-                 and the transcript lands in the conversation behind it, so no
-                 text is shown here. */
-              <div className="flex flex-1 items-center justify-center overflow-hidden px-6 py-8">
-                <VoiceOrb phase={voicePhase} size={320} />
-              </div>
-            ) : (
+          <div className="ml-4 mr-0 h-full w-px bg-vc-line" />
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-4">
+            {/* The scroller and the composer are separate flex children so the
+                transcript can never scroll underneath the composer panel. */}
+            <div className="relative min-h-0 flex-1">
               <div
                 ref={scrollerRef}
                 onScroll={handleTranscriptScroll}
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                className={clsx(
+                  'vc-scroll h-full overflow-y-auto overscroll-contain',
+                  isEmpty && 'flex flex-col justify-center',
+                )}
               >
-                <div className="space-y-5 p-4 sm:p-6">
-                {loading && (
-                  <p className="py-8 text-center text-sm text-ice/40">Loading conversation…</p>
+                <div
+                  className={clsx(
+                    'mx-auto w-full max-w-[720px]',
+                    isEmpty ? 'pb-[54px]' : 'pt-6 pb-16',
+                  )}
+                >
+                {loading && <p className="py-10 text-center text-[13px] text-vc-ink-2">Loading conversations…</p>}
+                {!loading && loadingMessages && <p className="py-10 text-center text-[13px] text-vc-ink-2">Loading messages…</p>}
+
+                {isEmpty && (
+                  <p className="h-[38px] text-center text-[32px] leading-tight font-semibold text-vc-ink">
+                    What's on your mind?
+                  </p>
                 )}
-                {!loading && loadingMessages && messages.length === 0 && (
-                  <p className="py-8 text-center text-sm text-ice/40">Loading messages…</p>
+
+                {isEmpty && (
+                  <div className="pt-[24px]">
+                    <Composer
+                      value={input}
+                      onChange={setInput}
+                      onSend={send}
+                      sending={sending}
+                      voicePhase={voicePhase}
+                      onMicToggle={handleMicToggle}
+                      voiceChoices={voiceChoices}
+                      voiceId={voiceId}
+                      onVoiceChange={changeVoice}
+                      voiceError={voiceError}
+                    />
+                  </div>
                 )}
-                {!loading && !loadingMessages && messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={clsx('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
-                  >
-                    {msg.role === 'assistant' ? (
-                      <div className="max-w-[90%]">
-                        <div className="chat-bubble-in min-h-[32px] rounded-lg border border-ice/10 bg-thaw px-3.5 py-2.5 text-sm leading-relaxed text-ice/75">
-                          {msg.text.includes('\n\n')
-                            ? msg.text.split(/\n{2,}/).map((para, idx) => (
-                                <p key={idx} className={idx > 0 ? 'mt-2.5' : undefined}>
-                                  {para}
-                                </p>
-                              ))
-                            : msg.text}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex max-w-[90%] items-start gap-2.5">
-                        <div className="flex-1">
-                          <div className="chat-bubble-in min-h-[32px] rounded-lg border border-ice/15 bg-thaw px-3.5 py-2 text-sm leading-snug whitespace-pre-wrap text-ice/85">
-                            {msg.text}
-                          </div>
-                          <MetaChips meta={msg.meta} />
-                        </div>
-                        <MoodBars className="mt-1 h-8" />
-                      </div>
-                    )}
+
+                {turns.map((turn) => (
+                  <div key={turn.key} className="mb-6">
+                    {turn.divider && <SwitchedDivider mode={turn.divider} />}
+                    <div className="space-y-5">
+                      {turn.user && <UserBubble text={turn.user.text} />}
+                      {turn.assistant && turn.assistant.text.trim() && (
+                        <AssistantReply
+                          message={turn.assistant}
+                          onGuide={guide}
+                          onSpeak={speak}
+                          speaking={speakingId === turn.assistant.id}
+                        />
+                      )}
+                    </div>
                   </div>
                 ))}
 
-                {sending && messages[messages.length - 1]?.role !== 'assistant' && (
-                  <div className="flex items-center gap-2 text-xs text-ice/40">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ice/50" />
-                    Routing intent, checking safety, retrieving context…
+                {sending && lastMsg?.role !== 'assistant' && (
+                  <div className="flex items-center gap-2 text-[13px] text-vc-ink-2">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-vc-general" />
+                    Reading your message…
                   </div>
                 )}
-                </div>
+                  </div>
               </div>
-            )}
 
-            {!voiceActive && !atBottom && (
-              <div className="pointer-events-none relative -mt-12 flex justify-center pb-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    forceBottomRef.current = true
-                    scrollToBottom(true)
-                  }}
-                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-ice/15 bg-surface-2/95 px-3 py-1.5 text-[11px] text-ice/70 shadow-lg backdrop-blur transition hover:border-ice/30 hover:text-ice"
-                >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                  Latest
-                </button>
-              </div>
-            )}
-
-            <div className="border-t border-ice/10 p-3 sm:p-4">
-              {voiceChoices.length > 0 && (
-                <div className="mb-2 flex items-center gap-2">
-                  <Volume2 className="h-3.5 w-3.5 shrink-0 text-ice/45" />
-                  <select
-                    value={voiceId ?? ''}
-                    onChange={(e) => changeVoice(e.target.value || null)}
-                    aria-label="Assistant voice"
-                    className="max-w-[220px] flex-1 truncate rounded-md border border-ice/15 bg-thaw px-2 py-1 text-[11px] text-ice/70 outline-none transition hover:border-ice/30 focus:border-ice/40"
+              {/* Floats above the transcript only — it never crosses the
+                  composer, so it cannot sit on top of a message. */}
+              {!atBottom && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      forceBottomRef.current = true
+                      scrollToBottom(true)
+                    }}
+                    className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-vc-line bg-vc-surface px-3 py-1.5 text-[11px] text-vc-ink-2 shadow-lg transition hover:text-vc-ink"
                   >
-                    {voiceChoices.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name}
-                      </option>
-                    ))}
-                  </select>
+                    <ArrowDown className="h-3.5 w-3.5" />
+                    Latest
+                  </button>
                 </div>
               )}
-              {voiceError && (
-                <div className="mb-2 flex items-center gap-2 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-1.5">
-                  <span className="truncate text-[10px] text-rose-400/90">{voiceError}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-2.5 rounded-lg border border-ice/10 bg-thaw px-2 py-1.5 focus-within:border-ice/30 focus-within:ring-2 focus-within:ring-violet/20">
-                <textarea
-                  rows={1}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      send()
-                    }
-                  }}
-                  disabled={sending}
-                  placeholder="What's on your mind?"
-                  className="max-h-32 flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-snug text-ice/75 outline-none placeholder:text-ice/35 disabled:opacity-50"
-                />
-                <button
-                  type="button"
-                  onClick={handleMicToggle}
-                  disabled={voicePhase === 'processing'}
-                  title={voiceActive ? 'Stop voice' : 'Start a voice conversation'}
-                  aria-label={voiceActive ? 'Stop voice conversation' : 'Start a voice conversation'}
-                  className={clsx(
-                    'mb-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition disabled:opacity-50',
-                    voiceActive
-                      ? voicePhase === 'processing' || voicePhase === 'ready'
-                        ? 'bg-violet-deep/25 text-violet-soft'
-                        : 'voice-pulse bg-rose-500/20 text-rose-400 hover:bg-rose-500/30'
-                      : 'bg-violet-deep/25 text-violet-soft hover:bg-violet/30 hover:text-violet-soft',
-                  )}
-                >
-                  {voicePhase === 'processing' || voicePhase === 'ready' ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : voicePhase === 'speaking' ? (
-                    <Volume2 className="h-3.5 w-3.5" />
-                  ) : voiceActive ? (
-                    <Square className="h-3 w-3" />
-                  ) : (
-                    <Mic className="h-3.5 w-3.5" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={send}
-                  disabled={sending || !input.trim()}
-                  className="mb-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-deep/25 text-violet-soft transition hover:bg-violet/30 hover:text-violet-soft disabled:opacity-50"
-                  aria-label="Send message"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
-              </div>
             </div>
+
+        <div className="shrink-0 px-5 pb-4">
+          <div className="mx-auto w-full max-w-[720px]">
+            {!isEmpty && (
+              <Composer
+                value={input}
+                onChange={setInput}
+                onSend={send}
+                sending={sending}
+                voicePhase={voicePhase}
+                onMicToggle={handleMicToggle}
+                voiceChoices={voiceChoices}
+                voiceId={voiceId}
+                onVoiceChange={changeVoice}
+                voiceError={voiceError}
+              />
+            )}
+            <p className={clsx('text-center text-[12px] text-vc-ink-2', !isEmpty && 'mt-2.5')}>
+              {DISCLAIMER}
+            </p>
+          </div>
+        </div>
           </div>
         </div>
       </div>
+
+      <VoiceOverlay
+        open={voiceOpen && voiceActive}
+        phase={voicePhase}
+        activeMode={currentMode}
+        onExit={() => {
+          setVoiceOpen(false)
+          if (isVoiceActive()) {
+            voiceTurnRef.current = null
+            void stopVoice()
+          }
+        }}
+        onMicToggle={handleMicToggle}
+      />
+
+      <UrgentHelpDialog open={urgentOpen} onClose={() => setUrgentOpen(false)} />
     </div>
   )
 }

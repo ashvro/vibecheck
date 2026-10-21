@@ -462,3 +462,135 @@ analyticsRoutes.get('/audit', async (req, res, next) => {
 analyticsRoutes.get('/factor-weights', (_req, res) => {
   res.json(factorWeights)
 })
+
+/* ------------------------------------------------------------------ *
+ * /overview - redesigned analytics payload for the student.
+ * ------------------------------------------------------------------ */
+analyticsRoutes.get('/overview', async (req, res, next) => {
+  try {
+    const user = req.user
+    const uid = user?.id
+    if (!uid) return res.status(401).json({ error: 'Login required.' })
+    const range = String(req.query.range || 'semester')
+    if (!['semester', '30d', 'ia1'].includes(range)) {
+      return res.status(400).json({ error: 'Invalid range.' })
+    }
+
+    const enrollments = await prisma.enrollment.findMany({
+      where: { userId: uid },
+      include: { course: true },
+    })
+
+    let attSum = 0, attCount = 0, weighted = 0, credits = 0
+    for (const e of enrollments) {
+      if (e.attendance != null) { attSum += e.attendance; attCount += 1 }
+      if (e.ia1 != null && e.ia2 != null) {
+        const cr = e.course?.credits || 3
+        weighted += ((e.ia1 + e.ia2) / 2) * cr
+        credits += cr
+      }
+    }
+    const avgAttendance = attCount > 0 ? Math.round(attSum / attCount) : null
+    const cgpa = credits > 0 ? weighted / credits / 10 : null
+    const markRows = enrollments.filter((e) => marksOf(e) != null)
+    const avgMarks = markRows.length
+      ? Math.round(markRows.reduce((s, e) => s + (marksOf(e) ?? 0), 0) / markRows.length)
+      : null
+
+    const prediction = predictRisk({ attendance: avgAttendance, cgpa })
+    const riskScore = Math.round(prediction.score)
+    const riskLabel = prediction.risk
+
+    const courses = enrollments.map((e) => {
+      const att = e.attendance ?? 0
+      const totalClasses = 100
+      const attendedClasses = Math.round((att / 100) * totalClasses)
+      const classesNeeded = att >= 75 ? 0 : Math.max(0, Math.ceil(3 * totalClasses - 4 * attendedClasses))
+      return {
+        subject: `${e.course?.code ?? ''} · ${e.course?.name ?? ''}`.trim(),
+        code: e.course?.code ?? '',
+        ia1: e.ia1 ?? null,
+        ia2: e.ia2 ?? null,
+        delta: e.ia1 != null && e.ia2 != null ? e.ia2 - e.ia1 : null,
+        attendance: e.attendance ?? null,
+        threshold: 75,
+        belowThreshold: (e.attendance ?? 0) < 75,
+        classesNeeded,
+      }
+    })
+
+    const drivers = []
+    for (const c of courses) {
+      if (c.attendance != null && c.attendance < 75) {
+        drivers.push({ label: `Low attendance in ${c.code}`, points: Math.round((75 - c.attendance) * 0.5) })
+      }
+      if (c.delta != null && c.delta < 0) {
+        drivers.push({ label: `${c.code} marks dropped ${Math.abs(c.delta)} pts`, points: Math.abs(c.delta) })
+      }
+    }
+    drivers.sort((a, b) => b.points - a.points)
+    const topDrivers = drivers.slice(0, 4)
+
+    const below = courses.filter((c) => c.attendance != null && c.attendance < 75)
+    let safeZone = null
+    if (below.length) {
+      const worst = below.reduce((a, b) => (a.attendance < b.attendance ? a : b))
+      safeZone = { course: worst.code, current: worst.attendance, classesNeeded: worst.classesNeeded }
+    }
+
+    const actions = []
+    for (const c of below.slice(0, 2)) {
+      actions.push({ title: `Show up for ${c.code} this week`, detail: `Attendance is ${c.attendance}%`, impactPoints: (75 - c.attendance) * 0.5, cta: 'Add to planner' })
+    }
+    for (const c of courses.filter((x) => x.delta != null && x.delta < 0).slice(0, 2)) {
+      if (actions.length < 3) actions.push({ title: `Revise ${c.code} before IA3`, detail: `Marks dropped ${Math.abs(c.delta)} pts`, impactPoints: Math.abs(c.delta), cta: 'Ask AI tutor' })
+    }
+    for (const c of courses) {
+      if (actions.length >= 3) break
+      if ((c.attendance ?? 0) >= 90 && (c.ia2 ?? 0) >= 90) {
+        actions.push({ title: `Keep ${c.code} going`, detail: 'Great marks and attendance', impactPoints: 0, cta: null })
+      }
+    }
+    actions.sort((a, b) => b.impactPoints - a.impactPoints)
+    const topActions = actions.slice(0, 3)
+
+    const goodMarks = (avgMarks ?? 0) >= 75
+    const goodAtt = (avgAttendance ?? 0) >= 75
+    let summaryText = ''
+    if (goodMarks && !goodAtt) summaryText = "You're acing exams. Attendance is the one thing holding your risk at " + riskLabel.toLowerCase() + "."
+    else if (!goodMarks && goodAtt) summaryText = "Attendance is solid, but marks need work to lower your risk."
+    else if (!goodMarks && !goodAtt) summaryText = "Both marks and attendance need attention to reduce your risk."
+    else summaryText = "Great work! Keep your marks and attendance up."
+
+    let percentile = null
+    const cohort = await prisma.enrollment.groupBy({ by: ['userId'], _count: true })
+    if (cohort.length >= 10 && avgMarks != null) {
+      const all = await prisma.enrollment.findMany({ select: { ia1: true, ia2: true, userId: true } })
+      const byUser = new Map()
+      for (const e of all) {
+        if (e.ia1 != null && e.ia2 != null) {
+          const m = Math.round((e.ia1 + e.ia2) / 2)
+          if (!byUser.has(e.userId)) byUser.set(e.userId, [])
+          byUser.get(e.userId).push(m)
+        }
+      }
+      const avgs = [...byUser.values()].map((arr) => arr.reduce((a, b) => a + b, 0) / arr.length)
+      const belowCount = avgs.filter((m) => m < avgMarks).length
+      percentile = `Top ${100 - Math.round((belowCount / avgs.length) * 100)}% of your batch`
+    }
+
+    res.json({
+      range,
+      riskScore,
+      riskLabel,
+      stats: { attendance: avgAttendance, marks: avgMarks, trend: null, delta: null, percentile: percentile || undefined },
+      courses,
+      drivers: topDrivers,
+      safeZone,
+      actions: topActions,
+      summaryText,
+    })
+  } catch (err) {
+    next(err)
+  }
+})

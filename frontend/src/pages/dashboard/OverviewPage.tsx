@@ -1,26 +1,7 @@
 import { useEffect, useState } from 'react'
-import {
-  CalendarDays,
-  Clock,
-  GraduationCap,
-  MessageSquareText,
-  ShieldCheck,
-  type LucideIcon,
-} from 'lucide-react'
 import clsx from 'clsx'
-import { CrystalMark } from '../../components/CrystalMark'
-import { PageHeader } from '../../components/PageHeader'
 import { api, getUser } from '../../lib/api'
 import { mlApi, type MlRisk, type MlSummary } from '../../lib/ml'
-
-type StatCard = {
-  label: string
-  value: string
-  unit?: string
-  icon: LucideIcon
-  bar?: number
-  kind?: 'risk' | 'academics'
-}
 
 type Summary = {
   messages: number
@@ -41,8 +22,18 @@ type Todo = {
   enrolled?: boolean
 }
 
-const riskLevels = ['Low', 'Mid', 'High']
-const academicsLevels = ['At risk', 'Average', 'On track', 'Strong', 'Outstanding']
+/** The percentage most universities expect a student to stay above. */
+const ATTENDANCE_MILESTONE = 75
+
+/**
+ * The model emits Low | Medium | High. The overview panel spells the middle
+ * band out in full so the row reads as prose rather than a class code.
+ */
+const riskLabels: Record<MlRisk, string> = {
+  Low: 'Low',
+  Medium: 'Moderate',
+  High: 'High',
+}
 
 const kindColors: Record<string, string> = {
   quiz: 'bg-violet/15 text-violet-soft border-violet/30',
@@ -51,88 +42,33 @@ const kindColors: Record<string, string> = {
   exam: 'bg-rose-400/15 text-rose-400 border-rose-400/30',
 }
 
-/** The model emits Low | Medium | High; the card keeps its original "Mid" label. */
-function mlPosition(risk: MlRisk): number {
-  return risk === 'High' ? 2 : risk === 'Medium' ? 1 : 0
-}
-
 /**
- * Risk is now driven by the ML model rather than attendance alone, but the
- * card stays empty until the model has both real features — attendance and
- * CGPA. A new user with no interaction has neither, so the initial state is a
- * plain "Low" with no score.
+ * Risk is driven by the ML model rather than attendance alone, but the row
+ * stays empty until the model has both real features — attendance and CGPA. A
+ * new user with no interaction has neither, so the initial state is a plain
+ * "Low" with no score.
  */
-function riskKind(ml: MlSummary | null): { label: string; position: number; score: number | null } {
+function riskKind(ml: MlSummary | null): { label: string; score: number | null } {
   const latest = ml?.latest ?? null
-  if (!latest || latest.imputed.length > 0) return { label: 'Low', position: 0, score: null }
-  const position = mlPosition(latest.risk)
-  return { label: riskLevels[position], position, score: latest.score }
+  if (!latest || latest.imputed.length > 0) return { label: riskLabels.Low, score: null }
+  return { label: riskLabels[latest.risk], score: latest.score }
 }
 
-function academicKind(cgpa: number | null): { label: string; index: number } {
-  if (cgpa === null || cgpa < 5) return { label: 'At risk', index: 0 }
-  if (cgpa < 7) return { label: 'Average', index: 1 }
-  if (cgpa < 8.5) return { label: 'On track', index: 2 }
-  if (cgpa < 9.5) return { label: 'Strong', index: 3 }
-  return { label: 'Outstanding', index: 4 }
+function academicKind(cgpa: number | null): string {
+  if (cgpa === null || cgpa < 5) return 'At risk'
+  if (cgpa < 7) return 'Average'
+  if (cgpa < 8.5) return 'On track'
+  if (cgpa < 9.5) return 'Strong'
+  return 'Outstanding'
 }
 
-function RiskContent({ ml }: { ml: MlSummary | null }) {
-  const risk = riskKind(ml)
+/** Label on the left, optional muted value on the right — the row's title band. */
+function RowHeading({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
-    <>
-      <p className="mt-3 flex items-baseline gap-1.5 text-xl font-semibold tracking-tight text-ink">
-        <span className="font-display tabular-nums">{risk.label}</span>
-        {risk.score != null && (
-          <span className="text-xs font-normal text-muted">{risk.score} / 100 risk</span>
-        )}
-      </p>
-      <div className="mt-2.5">
-        <div className="relative h-1.5 rounded-full bg-gradient-to-r from-emerald-soft/40 via-amber-gentle/40 to-rose-400/40">
-          <span
-            className={clsx(
-              'absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-thaw-deep shadow-[0_0_10px_rgba(157,184,168,0.6)]',
-              risk.position === 2 ? 'left-[98%] bg-rose-400' : risk.position === 1 ? 'left-1/2 bg-amber-gentle' : 'left-[2%] bg-emerald-soft',
-            )}
-          />
-        </div>
-        <div className="mt-1.5 flex justify-between font-mono text-[8px] tracking-[0.1em] text-muted uppercase">
-          {riskLevels.map((lvl) => (
-            <span key={lvl}>{lvl}</span>
-          ))}
-        </div>
-      </div>
-    </>
-  )
-}
-
-function AcademicsContent({ cgpa }: { cgpa: number | null }) {
-  const acad = academicKind(cgpa)
-  return (
-    <>
-      <p className="mt-3 flex items-baseline gap-1.5 text-xl font-semibold tracking-tight text-ink">
-        <span className="font-display tabular-nums">{acad.label}</span>
-        {cgpa != null && <span className="text-xs font-normal text-muted">{cgpa.toFixed(1)} / 10</span>}
-      </p>
-      <div className="mt-2.5 flex gap-1">
-        {academicsLevels.map((lvl, i) => (
-          <div
-            key={lvl}
-            className={clsx(
-              'h-1.5 flex-1 rounded-sm',
-              i <= acad.index ? 'bg-gradient-to-r from-emerald-soft/60 to-emerald-soft' : 'bg-line/60',
-            )}
-          />
-        ))}
-      </div>
-      <div className="mt-1.5 flex justify-between font-mono text-[8px] tracking-[0.1em] text-muted uppercase">
-        {academicsLevels.map((lvl, i) => (
-          <span key={lvl} className={clsx(i === acad.index && 'text-emerald-soft')}>
-            {lvl}
-          </span>
-        ))}
-      </div>
-    </>
+    <div className="flex items-baseline justify-between gap-4 leading-none">
+      <h2 className="text-[15px] font-medium text-ink/85">{label}</h2>
+      {value != null && <span className="text-[15px] text-muted">{value}</span>}
+    </div>
   )
 }
 
@@ -158,32 +94,22 @@ export function OverviewPage() {
   }, [])
 
   const firstName = user?.name ? String(user.name).split(' ')[0] : 'there'
-  const hour = new Date().getHours()
+  const now = new Date()
+  const hour = now.getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
-  const today = new Date().toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  })
-  const time = new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 
-  const statCards: StatCard[] = [
-    {
-      label: 'Community posts',
-      value: String(summary?.posts ?? 0),
-      unit: 'shared',
-      icon: MessageSquareText,
-    },
-    {
-      label: 'Attendance',
-      value: summary?.avgAttendance != null ? String(summary.avgAttendance) : '—',
-      unit: '%',
-      icon: CalendarDays,
-      bar: summary?.avgAttendance ?? undefined,
-    },
-    { label: 'Risk', value: riskKind(ml).label, icon: ShieldCheck, kind: 'risk' },
-    { label: 'Academics', value: academicKind(summary?.cgpa ?? null).label, icon: GraduationCap, kind: 'academics' },
-  ]
+  /* Composed from parts rather than one toLocaleDateString call so the order
+     stays "Monday 19 October" whatever the viewer's locale prefers. */
+  const weekday = now.toLocaleDateString(undefined, { weekday: 'long' })
+  const day = now.toLocaleDateString(undefined, { day: 'numeric' })
+  const month = now.toLocaleDateString(undefined, { month: 'long' })
+  const time = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+
+  const attendance = summary?.avgAttendance ?? null
+  const cgpa = summary?.cgpa ?? null
+  const posts = summary?.posts ?? 0
+  const risk = riskKind(ml)
+  const academicLabel = academicKind(cgpa)
 
   const tdo = (todos || [])
     .filter((t) => t.enrolled !== false)
@@ -196,109 +122,153 @@ export function OverviewPage() {
       kind: q.kind ?? 'quiz',
     }))
 
+  /* The lede is assembled from the two facts the page has: how attendance is
+     sitting, and whether anything is due. */
+  const attendanceLine =
+    attendance == null
+      ? 'Your attendance has not been recorded yet.'
+      : attendance < ATTENDANCE_MILESTONE
+        ? 'Your attendance is below the mark most universities ask for.'
+        : attendance < 90
+          ? 'Your attendance is a little under where it was.'
+          : 'Your attendance is holding up well.'
+  const dueLine =
+    tdo.length === 0
+      ? 'Nothing is due soon, so tonight is a good time to catch up.'
+      : `You have ${tdo.length} ${tdo.length === 1 ? 'deadline' : 'deadlines'} coming up — start with the closest one.`
+
+  const buffer = attendance == null ? null : Math.round(attendance - ATTENDANCE_MILESTONE)
+  const attendanceNote =
+    buffer == null
+      ? 'Attendance is averaged across the courses you are enrolled in.'
+      : buffer >= 0
+        ? `Most universities ask for ${ATTENDANCE_MILESTONE}%, so you have a small buffer of ${buffer} ${buffer === 1 ? 'point' : 'points'}.`
+        : `Most universities ask for ${ATTENDANCE_MILESTONE}%, so you are ${Math.abs(buffer)} ${Math.abs(buffer) === 1 ? 'point' : 'points'} short.`
+
   return (
-    <div className="rise-grid mx-auto max-w-5xl space-y-8">
-      <PageHeader
-        eyebrow="Overview"
-        title={`${greeting}, ${firstName}`}
-        description={`${today} · ${time}`}
-      />
+    <div className="rise-grid mx-auto max-w-6xl">
+      <header>
+        <p className="text-[15px] leading-none text-muted">
+          {weekday} {day} {month}, {time}
+        </p>
+        <h1 className="mt-1.5 text-4xl font-semibold tracking-tight text-ink sm:text-5xl lg:text-[3.375rem]">
+          {greeting}, {firstName}.
+        </h1>
+        <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-[17px]">
+          {attendanceLine} {dueLine}
+        </p>
+      </header>
 
-      <div className="grid grid-cols-2 gap-3">
-        {statCards.map(({ label, value, unit, icon: Icon, bar, kind }) => (
-          <div key={label} className="glass-ice rounded-xl px-4 py-3.5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-ice/15 bg-ice/[0.06] text-ice">
-                <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </span>
-              <p className="font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
-                {label}
-              </p>
-            </div>
+      <div className="mt-10 grid items-start gap-10 lg:grid-cols-[1.25fr_1fr] lg:gap-14">
+        <section className="rounded-3xl bg-surface p-7 sm:p-9">
+          <RowHeading label="Attendance" value="This semester" />
 
-            {kind === 'risk' && <RiskContent ml={ml} />}
-            {kind === 'academics' && <AcademicsContent cgpa={summary?.cgpa ?? null} />}
-
-            {!kind && (
+          <p className="mt-3 text-6xl font-semibold tracking-tight text-ink tabular-nums sm:text-7xl lg:text-8xl">
+            {attendance != null ? (
               <>
-                <p className="mt-3 flex items-baseline gap-1.5 text-xl font-semibold tracking-tight text-ink">
-                  <span className="font-display tabular-nums">{value}</span>
-                  {unit && <span className="text-xs font-normal text-muted">{unit}</span>}
-                </p>
-                {bar !== undefined && (
-                  <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-line/70">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-violet to-violet-soft"
-                      style={{ width: `${bar}%` }}
-                    />
-                  </div>
-                )}
+                {attendance}
+                <span className="text-lg leading-none font-normal text-muted sm:text-xl">%</span>
               </>
+            ) : (
+              '—'
             )}
+          </p>
+
+          <div className="mt-10 h-3 overflow-hidden rounded-full bg-line">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-violet to-violet-soft"
+              style={{ width: `${attendance ?? 0}%` }}
+            />
           </div>
-        ))}
+
+          <p className="mt-5 text-[15px] leading-relaxed text-muted">{attendanceNote}</p>
+        </section>
+
+        <section>
+          <div className="border-b border-ice/10 pb-6">
+            <RowHeading
+              label="Risk"
+              value={risk.score != null ? `${risk.score} of 100` : undefined}
+            />
+            <p className="mt-1.5 text-3xl font-semibold tracking-tight text-ink sm:text-4xl lg:text-[2.625rem]">
+              {risk.label}
+            </p>
+            <div className="relative mt-4 h-1.5 rounded-full bg-gradient-to-r from-emerald-soft via-amber-gentle to-rose-400">
+              {risk.score != null && (
+                <span
+                  className="absolute top-1/2 h-3.5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink"
+                  style={{ left: `${Math.min(100, Math.max(0, risk.score))}%` }}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="border-b border-ice/10 pt-7 pb-6">
+            <RowHeading label="Academics" value={academicLabel} />
+            <p className="mt-1.5 text-3xl font-semibold tracking-tight text-ink tabular-nums sm:text-4xl lg:text-[2.625rem]">
+              {cgpa != null ? (
+                <>
+                  {cgpa.toFixed(1)}
+                  <span className="text-lg leading-none font-normal text-muted sm:text-xl">
+                    {' / 10'}
+                  </span>
+                </>
+              ) : (
+                '—'
+              )}
+            </p>
+          </div>
+
+          <div className="border-b border-ice/10 pt-7 pb-12">
+            <RowHeading label="Community posts" value={`${posts} shared`} />
+          </div>
+        </section>
       </div>
 
-      <section className="glass-ice p-6">
-        <div className="flex items-center gap-2.5">
-          <CrystalMark size="sm" spinOnView />
-          <h2 className="text-sm font-semibold text-ink">To-do list</h2>
-          <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
-            <Clock className="h-3 w-3 text-ice/50" /> {tdo.length} upcoming
+      <section className="mt-8">
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">To-do</h2>
+          <span className="text-[15px] text-muted">
+            {tdo.length === 0 ? 'Nothing upcoming' : `${tdo.length} upcoming`}
           </span>
         </div>
 
-        <ul className="mt-4 space-y-2.5">
-          {tdo.length === 0 && (
-            <li className="rounded-xl border border-ice/10 tint-subtle px-3.5 py-3 text-sm text-muted">
-              No upcoming quizzes or assignments — enjoy the calm.
-            </li>
-          )}
-          {tdo.map(({ id, title, course, date, daysLeft, kind }) => (
-            <li
-              key={id}
-              className="group flex items-center gap-3.5 rounded-xl border border-ice/10 tint-subtle px-3.5 py-3 transition hover:border-ice/25 hover:tint-subtle-strong"
-            >
-              <span
-                className={clsx(
-                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border',
-                  daysLeft <= 2 ? 'border-violet/50 bg-violet/15' : 'border-ice/15',
-                )}
+        {tdo.length === 0 ? (
+          <p className="mt-3 text-[15px] leading-relaxed text-muted">
+            No quizzes or assignments are due. Enjoy the calm.
+          </p>
+        ) : (
+          <ul className="mt-4">
+            {tdo.map(({ id, title, course, date, daysLeft, kind }) => (
+              <li
+                key={id}
+                className="flex items-center gap-4 border-b border-ice/10 py-4 last:border-b-0"
               >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-medium text-ink/90">{title}</span>
+                  <span className="mt-1 block truncate text-[13px] text-muted">
+                    {course}
+                    {date ? ` · ${date}` : ''}
+                  </span>
+                </span>
                 <span
                   className={clsx(
-                    'h-1.5 w-1.5 rounded-full',
-                    daysLeft <= 2 ? 'bg-ice-bright' : 'bg-ice/30',
+                    'shrink-0 rounded-full border px-2.5 py-1 text-[11px]',
+                    kindColors[kind] ?? kindColors.quiz,
                   )}
-                />
-              </span>
-
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-ink/90">
-                  {title}
+                >
+                  {daysLeft == null
+                    ? 'Upcoming'
+                    : daysLeft === 0
+                      ? 'Today'
+                      : daysLeft === 1
+                        ? '1 day'
+                        : `${daysLeft} days`}
                 </span>
-                <span className="mt-0.5 flex items-center gap-2 font-mono text-[9px] tracking-[0.14em] text-muted uppercase">
-                  {course} <span className="text-ice/20">·</span> {date || 'No date set'}
-                </span>
-              </span>
-
-              <span
-                className={clsx(
-                  'shrink-0 rounded-full border px-2.5 py-1 font-mono text-[9px] tracking-[0.1em] uppercase',
-                  kindColors[kind] ?? kindColors.quiz,
-                )}
-              >
-                {daysLeft == null
-                  ? 'Upcoming'
-                  : daysLeft === 0
-                    ? 'Today'
-                    : daysLeft === 1
-                      ? '1 day'
-                      : `${daysLeft} days`}
-              </span>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   )

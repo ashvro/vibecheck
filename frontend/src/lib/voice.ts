@@ -1,5 +1,5 @@
 import * as vad from '@ricky0123/vad-web'
-import { SpeechStream, getTtsProvider } from './tts'
+import { SpeechStream, warmTts } from './tts'
 import { streamVoice } from './stream'
 
 export type VoicePhase =
@@ -78,21 +78,22 @@ const VAD_TUNING = {
   positiveSpeechThreshold: 0.5,
   /** Probability below which a frame counts as silence (default 0.25). */
   negativeSpeechThreshold: 0.35,
-  /** Silence held before the turn is closed (default 1400ms). */
-  redemptionMs: 650,
+  /** Silence held before the turn is closed (default 1400ms). Kept short so
+      the agent reacts within about a second of you stopping. */
+  redemptionMs: 320,
   /** Audio kept before speech is detected, so the first word isn't clipped. */
-  preSpeechPadMs: 400,
+  preSpeechPadMs: 280,
   /** Minimum speech length for a valid utterance; shorter is a misfire. */
-  minSpeechMs: 500,
+  minSpeechMs: 320,
 } as const
 
 /**
- * While the assistant is talking we ask for a longer, more deliberate
- * utterance before treating it as an interruption. This stops the model's own
- * voice leaking through the speakers (imperfect echo cancellation) from
- * cutting its reply off after the first sentence.
+ * While the assistant is talking we ask for a slightly longer utterance before
+ * treating it as an interruption, so the model's own voice leaking through the
+ * speakers (imperfect echo cancellation) does not cut its reply off — but kept
+ * short so you can genuinely cut in and be heard almost immediately.
  */
-const BARGE_IN_MIN_SPEECH_MS = 900
+const BARGE_IN_MIN_SPEECH_MS = 320
 
 function wavBlob(samples: Float32Array): Blob {
   const buffer = vad.utils.encodeWAV(samples, 1, 16000, 1, 16)
@@ -254,6 +255,7 @@ async function ensureVad(): Promise<vad.MicVAD> {
       // so a background noise blip no longer cancels the reply mid-sentence.
       if (speech) {
         speech.cancel()
+        speech = null
         setPhase('listening')
       }
       if (processing) abortTurn()
@@ -283,9 +285,10 @@ export function prewarmVoice(): void {
   if (prewarmStarted) return
   if (typeof window === 'undefined') return
   prewarmStarted = true
-  // Warm the TTS provider lookup too — otherwise the very first spoken chunk
-  // waits on this request before it can start synthesising.
-  void getTtsProvider().catch(() => undefined)
+  // Warm the TTS provider lookup and the audio context too — otherwise the very
+  // first spoken chunk waits on the provider request and a cold audio start
+  // before it can make a sound, which is exactly the lag after you stop talking.
+  void warmTts().catch(() => undefined)
   void ensureVad().catch((err) => {
     prewarmStarted = false
     console.warn('[voice] prewarm failed', err)

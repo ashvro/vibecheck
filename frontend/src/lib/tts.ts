@@ -29,6 +29,34 @@ export function resetTtsProviderCache() {
   ttsStatusCache = null
 }
 
+/**
+ * Shared AudioContext for neural playback. Creating one is slow (~50-150ms of
+ * cold start on some machines) and the first spoken chunk cannot begin until it
+ * exists, so we create it once during prewarm and reuse it for every turn.
+ */
+let sharedCtx: AudioContext | null = null
+
+function audioContext(): AudioContext {
+  if (!sharedCtx || sharedCtx.state === 'closed') sharedCtx = new AudioContext()
+  if (sharedCtx.state === 'suspended') void sharedCtx.resume()
+  return sharedCtx
+}
+
+/**
+ * Resolves the TTS provider and builds the audio context ahead of the first
+ * turn, so the reply can start speaking the moment its first words arrive
+ * instead of paying the lookup and cold-start cost at that exact moment.
+ */
+export async function warmTts(): Promise<void> {
+  await getTtsProvider().catch(() => undefined)
+  if (typeof window === 'undefined') return
+  try {
+    audioContext()
+  } catch {
+    /* no audio in this environment */
+  }
+}
+
 const VOICE_KEY = 'vibecheck:voiceId'
 
 export function getSelectedVoiceId(): string | null {
@@ -189,7 +217,6 @@ function browserSpeaker(onLevel?: (level: number) => void): Speaker {
 }
 
 class NeuralSpeaker implements Speaker {
-  private ctx: AudioContext | null = null
   private sources = new Map<AudioBufferSourceNode, () => void>()
   private generation = 0
   private speakingCount = 0
@@ -206,9 +233,7 @@ class NeuralSpeaker implements Speaker {
   }
 
   private context(): AudioContext {
-    this.ctx ??= new AudioContext()
-    if (this.ctx.state === 'suspended') void this.ctx.resume()
-    return this.ctx
+    return audioContext()
   }
 
   /** Taps the output graph so the orb can react to real playback loudness. */
@@ -316,15 +341,16 @@ class NeuralSpeaker implements Speaker {
     }
     this.sources.clear()
     this.speakingCount = 0
-    if (this.ctx?.state !== 'closed') void this.ctx?.close().catch(() => undefined)
-    this.ctx = null
+    // The shared context is deliberately left open: closing it would force a
+    // cold start on the very next turn, which is exactly the delay we are
+    // trying to remove (especially when interrupting and following up).
   }
 }
 
 const SENTENCE_END = /[.!?…]["')\]]?\s/
 const CLAUSE_BREAK = /[,;:—–]/
 /** Don't start a clause-level chunk until there is at least this much to say. */
-const MIN_CHUNK_CHARS = 40
+const MIN_CHUNK_CHARS = 24
 /** Hard cap before we break at a plain word boundary so speech keeps up. */
 const MAX_CHUNK_CHARS = 96
 

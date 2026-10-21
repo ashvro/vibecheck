@@ -9,8 +9,21 @@
   --color-emerald-soft: #9db8a8;
   --color-amber-gentle: #d4b896;
 
-  /* Surfaces — deep plum */
-  --color-bg: #120f18;
+  /* Surfaces — deep purple per spec */
+  --color-bg: #120d1f;
+  --color-bg-page: #120d1f;
+  --color-topbar: #161027;
+  --color-card: #1b1430;
+  --color-vote-strip: rgba(0,0,0,.25);
+  --color-border: #2e2350;
+  --color-border-hover: #b9a2f5;
+  --color-border-popup: #3a2c6b;
+  --color-text-primary: #ece8f8;
+  --color-text-secondary: #cfc8e6;
+  --color-text-muted: #a79fc4;
+  --color-accent: #b9a2f5;
+  --color-accent-ink: #1a1030;
+  --color-selected-chip: #2a1f4d;
   --color-surface: #1a1524;
   --color-surface-2: #241e30;
   --color-ink: #f0ebf8;
@@ -33,6 +46,34 @@
   --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
   --font-hero: "Syne", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* ----------------------------------------------------------------------
+     AI Assistant surface palette (`vc-*`).
+     The mockup geometry is unchanged; these tones are tuned to the app's own
+     deep-plum theme (`--color-bg` / `--color-surface` / `--color-ice`) so the
+     tab reads as part of the same product instead of a separate indigo skin.
+     They live in `@theme` only — not in the `.theme-dark` / `.theme-light`
+     scopes — so the assistant keeps its own palette no matter which app theme
+     is active. Nothing outside `components/assistant/*` reads them.
+     ---------------------------------------------------------------------- */
+  --color-vc-bg: #16111f; /* page canvas — deep plum */
+  --color-vc-voice-bg: #100b1a; /* voice stage — darker, so the orb leads */
+  --color-vc-rail: #1a1524; /* rail / glass panels */
+  --color-vc-surface: #241e30; /* cards + composer */
+  --color-vc-surface-2: #2e2639; /* active pill */
+  --color-vc-bubble: #332a44; /* user bubble / avatars / send */
+  --color-vc-row: #2a2235; /* selected rail row */
+  --color-vc-line: #342c42; /* hairline borders + dividers */
+  --color-vc-line-strong: #453a58; /* composer border */
+  --color-vc-check: #9a8fb0; /* plan-row checkbox outline */
+  --color-vc-ink: #f0ebf8; /* primary text */
+  --color-vc-ink-2: #9a8fb0; /* secondary text */
+  --color-vc-ink-3: #7d7391; /* tertiary text */
+  --color-vc-rail-text: #c4bde6; /* rail item text */
+  --color-vc-counselor: #9db8a8; /* mental_health */
+  --color-vc-tutor: #d4b896; /* academics */
+  --color-vc-general: #b8a4e0; /* career / general */
+  --color-vc-alert: #d4c4f5; /* urgent-help link */
 }
 
 /* --------------------------------------------------------------------------
@@ -323,6 +364,243 @@ html.theme-switching *::after {
 
   .chat-bubble-in {
     animation: mock-msg-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* --- AI Assistant surface ------------------------------------------------ */
+
+  /* Glass panels for the assistant. Mirrors the app's `.glass` recipe so the
+     tab shares the same material language as every other dashboard surface. */
+  .vc-glass {
+    background: var(--glass-grad);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  }
+
+  .vc-glass-soft {
+    background: var(--glass-ice-grad);
+    backdrop-filter: blur(20px) saturate(1.25);
+    -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  }
+
+  /* Same material, but the tint warms toward the brand plum rather than the
+     neutral surface gradient — used for the composer and raised cards. */
+  .vc-glass-plum {
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--color-vc-surface) 78%, transparent),
+      color-mix(in srgb, var(--color-vc-rail) 82%, transparent)
+    );
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  }
+
+  /* Hide the scrollbar on the transcript without losing the ability to scroll. */
+  .vc-scroll {
+    scrollbar-width: none;
+  }
+
+  .vc-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ----------------------------------------------------------------------
+     Orb — the voice sphere.
+     A crisp violet rim with a fluid interior: violet cloud masses drifting
+     under a lit white crown, held at roughly 60% purple / 40% white. The
+     `--vc-flow-speed` variable is written from the rAF loop so the cloud
+     motion quickens as you or the agent speak.
+     ---------------------------------------------------------------------- */
+
+  /* Soft violet depth behind the sphere — a grounding shadow, not a glow.
+     Kept dim so nothing reads as a halo around the rim. */
+  .vc-orb-halo {
+    background: radial-gradient(
+      circle at 50% 46%,
+      rgba(120, 96, 210, 0.22),
+      rgba(80, 60, 168, 0.1) 48%,
+      rgba(80, 60, 168, 0) 72%
+    );
+    filter: blur(30px);
+    animation: vc-halo-breathe 5.5s ease-in-out infinite;
+  }
+
+  .vc-orb-halo-speaking {
+    animation-duration: 2.6s;
+  }
+
+  @keyframes vc-halo-breathe {
+    0%,
+    100% {
+      opacity: 0.5;
+      transform: scale(0.97);
+    }
+    50% {
+      opacity: 0.72;
+      transform: scale(1.02);
+    }
+  }
+
+  /* Crisp rim: a defined violet edge with a lit inner top, no outer bloom. */
+  .vc-orb-rim {
+    border: 1.5px solid rgba(176, 152, 245, 0.75);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.55),
+      inset 0 -14px 28px -18px rgba(48, 30, 110, 0.9);
+  }
+
+  /* ----------------------------------------------------------------------
+     Cloud flow — the fluid interior.
+     Each puff is a soft violet mass that drifts and swells like cloud, so the
+     colour folds through the sphere. Frequency comes from `--vc-flow-speed`
+     (set per-frame in the rAF loop): higher voice level -> shorter duration.
+     ---------------------------------------------------------------------- */
+  .vc-cloud {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    will-change: transform;
+    animation-duration: var(--vc-flow-speed, 22s);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+
+  .vc-cloud-1 {
+    inset: 4% 30% 40% 8%;
+    background: radial-gradient(
+      closest-side,
+      rgba(104, 74, 214, 0.95),
+      rgba(90, 64, 196, 0.45) 58%,
+      rgba(90, 64, 196, 0) 84%
+    );
+    filter: blur(13px);
+    animation-name: vc-cloud-a;
+  }
+
+  .vc-cloud-2 {
+    inset: 32% 6% 10% 34%;
+    background: radial-gradient(
+      closest-side,
+      rgba(72, 48, 168, 0.95),
+      rgba(72, 48, 168, 0.42) 56%,
+      rgba(72, 48, 168, 0) 82%
+    );
+    filter: blur(16px);
+    animation-name: vc-cloud-b;
+  }
+
+  .vc-cloud-3 {
+    inset: 44% 24% 2% 22%;
+    background: radial-gradient(
+      closest-side,
+      rgba(56, 36, 140, 0.9),
+      rgba(56, 36, 140, 0.36) 54%,
+      rgba(56, 36, 140, 0) 80%
+    );
+    filter: blur(18px);
+    animation-name: vc-cloud-c;
+  }
+
+  .vc-cloud-4 {
+    inset: 12% 20% 52% 30%;
+    background: radial-gradient(
+      closest-side,
+      rgba(150, 126, 240, 0.72),
+      rgba(134, 112, 232, 0.3) 60%,
+      rgba(134, 112, 232, 0) 86%
+    );
+    filter: blur(14px);
+    animation-name: vc-cloud-d;
+  }
+
+  /* Billowing drift — translate + swell + slow rotation make the masses fold
+     over one another the way cloud does, rather than sliding as one blob. */
+  @keyframes vc-cloud-a {
+    0%,
+    100% {
+      transform: translate3d(-8%, 6%, 0) scale(1.06) rotate(0deg);
+    }
+    33% {
+      transform: translate3d(24%, -14%, 0) scale(1.55) rotate(120deg);
+    }
+    66% {
+      transform: translate3d(4%, 30%, 0) scale(0.86) rotate(240deg);
+    }
+  }
+
+  @keyframes vc-cloud-b {
+    0%,
+    100% {
+      transform: translate3d(16%, -10%, 0) scale(1.3) rotate(0deg);
+    }
+    40% {
+      transform: translate3d(-26%, 18%, 0) scale(0.82) rotate(-140deg);
+    }
+    75% {
+      transform: translate3d(12%, 26%, 0) scale(1.5) rotate(-260deg);
+    }
+  }
+
+  @keyframes vc-cloud-c {
+    0%,
+    100% {
+      transform: translate3d(-4%, 16%, 0) scale(1.12) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(22%, -18%, 0) scale(1.48) rotate(180deg);
+    }
+  }
+
+  @keyframes vc-cloud-d {
+    0%,
+    100% {
+      transform: translate3d(8%, -14%, 0) scale(0.94) rotate(0deg);
+    }
+    45% {
+      transform: translate3d(-22%, 20%, 0) scale(1.42) rotate(160deg);
+    }
+    80% {
+      transform: translate3d(-8%, -22%, 0) scale(1.1) rotate(300deg);
+    }
+  }
+
+  /* Voice status line under the orb — a soft pulse so the phase reads as live. */
+  .vc-status-label {
+    animation: vc-status-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes vc-status-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .vc-status-dot {
+    animation: vc-status-pulse 1.4s ease-in-out infinite;
+  }
+
+  .vc-status-dot:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+
+  .vc-status-dot:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+
+  @keyframes vc-status-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+      transform: translateY(0);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-2px);
+    }
   }
 
   .chat-bars-in {
@@ -1716,6 +1994,16 @@ html.theme-switching *::after {
   .nav-card::before {
     animation: none !important;
     transition: none !important;
+  }
+
+  .vc-orb-halo,
+  .vc-cloud {
+    animation: none !important;
+  }
+
+  .vc-status-label,
+  .vc-status-dot {
+    animation: none !important;
   }
 
   .rise-grid > * {

@@ -114,6 +114,7 @@ export const analyticsApi = {
   audit: (limit = 60) => api.get<AuditEntry[]>(`/api/analytics/audit?limit=${limit}`),
   factorWeights: () => api.get<{ name: string; value: number }[]>('/api/analytics/factor-weights'),
   summary: () => api.get<DashboardSummary>('/api/analytics/summary'),
+  summaryV2: (range = 'semester') => api.get<any>(`/api/analytics/overview?range=${range}`),
 }
 
 export const riskTone: Record<RiskLevel, string> = {

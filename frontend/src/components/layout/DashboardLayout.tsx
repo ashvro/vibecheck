@@ -6,22 +6,20 @@ import { TopNavbar } from './TopNavbar'
 export function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { pathname } = useLocation()
-  const isChat = pathname === '/app/ai'
 
   /* Cursor-tracked ambient light — pure decoration for the spatial stage. */
   const auraRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (isChat) return
     function handleMove(e: PointerEvent) {
       auraRef.current?.style.setProperty('--mx', `${e.clientX}px`)
       auraRef.current?.style.setProperty('--my', `${e.clientY}px`)
     }
     window.addEventListener('pointermove', handleMove)
     return () => window.removeEventListener('pointermove', handleMove)
-  }, [isChat])
+  }, [])
 
   return (
-    <div className="app-shell grain relative min-h-screen bg-bg text-ink landing-frost">
+    <div className="app-shell grain landing-frost relative min-h-screen bg-bg text-ink">
       <div className="aurora" aria-hidden>
         <span className="aurora-orb orb-a" />
         <span className="aurora-orb orb-b" />
@@ -30,9 +28,10 @@ export function DashboardLayout() {
       <div ref={auraRef} className="aura-follow" aria-hidden />
 
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
       <div className="relative z-10 lg:pl-56">
         <TopNavbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className={isChat ? 'p-0' : 'p-5 sm:p-6 lg:p-8'}>
+        <main className="p-5 sm:p-6 lg:p-8">
           {/* Keyed by route so every navigation replays the spatial entrance. */}
           <div key={pathname} className="page-enter">
             <Outlet />

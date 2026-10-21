@@ -269,19 +269,27 @@ export async function resolveEvidence({ intent, message, category }) {
   }
 
   const used = attempt.results.length > 0 && attempt.bestScore >= SUFFICIENCY_THRESHOLD
+  // Expansion pulls in neighbouring chunks, which multiplies prompt tokens.
+  // The top hit already carries the topic, so academics keeps a single radius
+  // step and everything else stays unexpanded.
   const results = used
-    ? await expandContext(attempt.results, { radius: intent === 'academics' ? 2 : 1 })
+    ? await expandContext(attempt.results, { radius: intent === 'academics' ? 1 : 0 })
     : attempt.results
   return { results, used, attempts: 2, total: attempt.total }
 }
 
-export function formatEvidence(results, limit = 4) {
+/**
+ * Renders retrieved documents for the prompt. Each doc is capped so one long
+ * textbook chunk cannot dominate the prompt — the tutor only needs the key
+ * points, not the whole passage, and this keeps retrieval cost flat.
+ */
+export function formatEvidence(results, limit = 4, perDoc = 900) {
   if (!results || !results.length) return ''
   return results
     .slice(0, limit)
     .map(
       (r, i) =>
-        `[Doc ${i + 1}] title: ${r.title} · category: ${r.category} · relevance: ${r.score}\n${r.text.slice(0, 1600)}`,
+        `[Doc ${i + 1}] title: ${r.title} · category: ${r.category} · relevance: ${r.score}\n${r.text.slice(0, perDoc)}`,
     )
     .join('\n\n')
 }

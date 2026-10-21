@@ -44,6 +44,28 @@ function hardRiskCheck(text) {
   return null
 }
 
+/**
+ * Signals that an academics question wants code. Deliberately conservative and
+ * keyword-based — it only decides whether to ask the tutor for a runnable
+ * example in a fenced block, so a false negative simply gives a prose answer
+ * (still fine) while a false positive adds a helpful snippet.
+ */
+const CODING_PATTERNS = new RegExp(
+  [
+    '\\bcode\\b', '\\bcoding\\b', '\\bprogram\\b', '\\bprogramming\\b',
+    '\\bpython\\b', '\\bjava\\b', '\\bjavascript\\b', '\\btypescript\\b', '\\bc\\+\\+\\b',
+    '\\bsql\\b', '\\bquery\\b', '\\bqueries\\b', '\\bmysql\\b', '\\bpostgres\\b',
+    '\\bdsa\\b', '\\balgorithm\\b', '\\balgorithms\\b', '\\bdata structure\\b',
+    '\\blinked list\\b', '\\bbinary tree\\b', '\\bbinary search\\b', '\\bsorting\\b',
+    '\\brecursion\\b', '\\brecursive\\b', '\\bstack\\b', '\\bqueue\\b', '\\bhashmap\\b',
+    '\\bhash map\\b', '\\bheap\\b', '\\bgraph\\b', '\\bdynamic programming\\b',
+    '\\btime complexity\\b', '\\bbig o\\b', '\\bfunction\\b', '\\bimplement\\b',
+    '\\bleetcode\\b', '\\bwrite a program\\b', '\\bsyntax\\b', '\\bcompile\\b',
+    '\\bdebug\\b', '\\bloop\\b', '\\barray\\b', '\\bstring reversal\\b',
+  ].join('|'),
+  'i',
+)
+
 function userIdOf(req) {
   return req.user?.id ?? null
 }
@@ -65,6 +87,43 @@ async function ensureSession(req, sessionId) {
   return prisma.chatSession.create({ data: { userId: userIdOf(req), title: 'New chat' } })
 }
 
+async function generateSessionSummary(messages, userId) {
+  try {
+    if (!messages || messages.length === 0) return null
+    // Get all messages in the conversation for better context
+    const allMsgs = messages
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 200)}`)
+      .join('\n')
+    
+    if (!hasGroq()) {
+      // Fallback to first user message
+      const firstUser = messages.find((m) => m.role === 'user')
+      return firstUser ? firstUser.content.slice(0, 50).replace(/\n/g, ' ') + '...' : null
+    }
+    
+    const system = `You are a conversation summarizer. Create a very short, concise title/summary (max 40 characters) for this chat conversation. 
+    Focus on the main topic. Be specific but brief. Examples: "Binary Search Explained", "Exam Stress Help", "Python Loops". 
+    Return ONLY the summary text, no quotes, no extra words.`
+    
+    const data = await groqChat({
+      system,
+      user: `Summarize this conversation:\n${allMsgs.slice(0, 800)}`,
+      temperature: 0.3,
+      maxTokens: 30,
+      reasoningEffort: 'low',
+      model: modelConfig.groqFastModel,
+    })
+    
+    if (data && typeof data === 'string') {
+      const summary = data.trim().replace(/^["']|["']$/g, '').replace(/\n/g, ' ').slice(0, 60)
+      return summary || null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 assistantRoutes.get('/sessions', async (req, res, next) => {
   try {
     const sessions = await prisma.chatSession.findMany({
@@ -72,19 +131,42 @@ assistantRoutes.get('/sessions', async (req, res, next) => {
       orderBy: { updatedAt: 'desc' },
       include: {
         _count: { select: { messages: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { content: true } },
+        messages: { orderBy: { createdAt: 'asc' }, select: { content: true, role: true } },
       },
     })
-    res.json(
-      sessions.map((s) => ({
+    const result = []
+    for (const s of sessions) {
+      let title = s.title
+      // Generate summary if it's a new chat or just started
+      if (!title || title === 'New chat' || s.messages.length >= 1) {
+        // Use cached summary if we have messages
+        if (s.messages.length > 0) {
+          const summary = await generateSessionSummary(s.messages, s.userId)
+          if (summary) {
+            title = summary
+            // Update the session title in background
+            prisma.chatSession.update({ where: { id: s.id }, data: { title } }).catch(() => {})
+          } else if (!title || title === 'New chat') {
+            const firstUserMsg = s.messages.find((m) => m.role === 'user')
+            const firstMsg = firstUserMsg?.content || s.messages[0]?.content || null
+            if (firstMsg) {
+              title = firstMsg.replace(/\n/g, ' ').slice(0, 50) + (firstMsg.length > 50 ? '...' : '')
+            }
+          }
+        }
+      }
+      const firstUserMsg = s.messages.find((m) => m.role === 'user')
+      const firstMsg = firstUserMsg?.content || s.messages[0]?.content || null
+      result.push({
         id: s.id,
-        title: s.title,
+        title: title || 'New chat',
         intent: s.intent,
         updatedAt: s.updatedAt,
         messageCount: s._count.messages,
-        preview: s.messages[0]?.content ?? null,
-      })),
-    )
+        preview: firstMsg,
+      })
+    }
+    res.json(result)
   } catch (err) {
     next(err)
   }
@@ -203,6 +285,10 @@ function safetyResponseVoice(riskLevel) {
   return "I hear you, and I'm glad you reached out. Please tell one person today how you're really doing — a friend, anyone — and if talking feels hard, call 14416, that's Tele-MANAS, free and 24/7. You've made it through heavy days before, and you'll get through this one. I'm right here with you for as long as you need."
 }
 
+/**
+ * Flattens one prose paragraph: strips bold, headings and list markers and
+ * collapses whitespace, so a streamed reply reads as clean sentences.
+ */
 function cleanPara(value) {
   return String(value)
     .replace(/\*\*(.+?)\*\*/g, '$1')
@@ -212,12 +298,99 @@ function cleanPara(value) {
     .trim()
 }
 
+/**
+ * True when a line is a markdown list item ("- foo", "• foo", "1. foo").
+ * The marker itself is dropped; the frontend re-adds a bullet so the item
+ * renders as a real list row instead of a wall of sentences.
+ */
+function isListItem(line) {
+  return /^\s*(?:[-•*]|\d+[.)])\s+\S/.test(line)
+}
+
+/** Flattens a single list item, keeping its text but not its marker. */
+function cleanItem(value) {
+  return String(value)
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^\s*(?:[-•*]|\d+[.)])\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Normalizes one prose block, preserving list structure.
+ *
+ * List items are emitted one per line (marker removed) so the frontend can
+ * render them as bullets; ordinary paragraphs are flattened as before. Either
+ * way the result is a single string the renderer can split on newlines.
+ */
+function normalizeProse(block) {
+  const lines = String(block).split('\n')
+  const out = []
+  let paragraph = []
+
+  const flush = () => {
+    const joined = cleanPara(paragraph.join(' '))
+    if (joined) out.push(joined)
+    paragraph = []
+  }
+
+  for (const line of lines) {
+    if (isListItem(line)) {
+      flush()
+      const item = cleanItem(line)
+      if (item) out.push(`- ${item}`)
+      continue
+    }
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+    paragraph.push(line)
+  }
+  flush()
+
+  return out.join('\n')
+}
+
+/**
+ * Normalizes a reply while protecting fenced code blocks.
+ *
+ * Prose still gets flattened (bold/headings stripped) and list items keep their
+ * structure so a tutor's pointwise answer renders as bullets. Anything inside
+ * ``` fences is passed through untouched — the fence markers and every leading
+ * space have to survive so the frontend can render a boxed code block with
+ * correct indentation.
+ */
 function normalizeReplyText(raw) {
-  return String(raw)
-    .split(/\n{2,}/)
-    .map(cleanPara)
-    .filter(Boolean)
-    .join('\n\n')
+  const value = String(raw)
+  const parts = value.split(/```/)
+  const out = []
+
+  for (let i = 0; i < parts.length; i += 1) {
+    // Odd indices are the content between a pair of ``` fences.
+    if (i % 2 === 1) {
+      const segment = parts[i]
+      // Keep the language alias that follows the opening fence ("python\n...")
+      // on the fence line so the frontend can label the block, then trim only
+      // the padding around the code itself.
+      const nl = segment.indexOf('\n')
+      const lang = (nl === -1 ? segment : segment.slice(0, nl)).trim()
+      const body = (nl === -1 ? '' : segment.slice(nl + 1)).replace(/\s+$/, '')
+      if (!body.trim()) continue
+      out.push(lang ? `\`\`\`${lang}\n${body}\n\`\`\`` : `\`\`\`\n${body}\n\`\`\``)
+      continue
+    }
+    // Blank-line-separated blocks become paragraphs; within a block, list
+    // items stay on their own lines.
+    const prose = parts[i]
+      .split(/\n{2,}/)
+      .map(normalizeProse)
+      .filter(Boolean)
+      .join('\n\n')
+    if (prose) out.push(prose)
+  }
+
+  return out.join('\n\n')
 }
 
 async function generateReply(context, { onDelta, signal } = {}) {
@@ -225,6 +398,15 @@ async function generateReply(context, { onDelta, signal } = {}) {
     intent, text, history, riskLevel, riskReason,
     category, evidence, evidenceUsed, correction, userContext, userDataQ, voice,
   } = context
+
+  // Detects code/CS questions so the tutor answers them with a runnable example
+  // and a fenced code block instead of prose alone.
+  const isCoding = CODING_PATTERNS.test(text || '')
+
+  // Token budget. Token use is the constraint here, so each path gets only what
+  // it needs: a brief spoken reply is cheap, a detailed tutor answer needs room,
+  // and everything else stays tight.
+  const maxTokens = voice ? 260 : intent === 'academics' ? 1100 : intent === 'mental_health' ? 700 : 700
 
   const system = `You are "VibeCheck", a warm student support assistant built for college students. You sound like a smart, kind upper-year friend — Gen Z, casual, real — never like a corporate chatbot or a textbook. Your job: genuinely help across academics, career, and well-being. Be responsible with mental-health topics. Match what the user asks for first.
 
@@ -249,24 +431,57 @@ ${userContext ? `USER CONTEXT (real, current data from this student's account �
 ${voice ? `
 VOICE MODE — this reply is SPOKEN ALOUD, not read on screen. These rules override the paragraph and length rules above:
 - You MUST reply ONLY in English. Do not use Hindi, Urdu, Hinglish, transliterated Hindi, or any other language. Never mix languages.
-- Two to four short sentences. Aim for roughly 40 to 60 words. Enough to actually help, never a monologue.
+- MAXIMUM 100 words — aim for roughly 60 to 90. This is a hard ceiling: voice costs real money per token, so say the main points and stop. Never a monologue, never a list of everything.
+- Cover only the ONE or TWO most important points. Pick what actually answers the question and leave the rest out on purpose.
+- If the topic has one, land the main point with a quick, concrete example in a single spoken sentence ("for example, ...").
+- End with a short follow-up question that offers more, e.g. "Want me to go deeper on that?" or "Should I break down the next part?"
 - Keep the same warm, casual, peer-to-peer tone as above — but drop slang entirely if the topic is mental health or distress.
 - Write for the ear. NO markdown, NO lists, NO headings, NO bullet or numbered lists, NO URLs, NO emoji, NO parentheses, NO asterisks, NO em dashes.
+- NEVER read out code. If the question is about code, describe the idea out loud in plain English and offer to show the full code in chat.
 - Only the words you would actually say. No stage directions, no labels, no "Answer:", no formatting.
 - Contractions are preferred: "you're", "I'll", "that's". Spoken, not written.
 - Lead immediately with the answer or the emotional response. Never open with "Great question!" or a preamble.
-- Give ONE most important point. If more detail would help, offer it in a short closing line: "Want the quick version or the full walkthrough?"
-- Only end with a question if you genuinely could not answer without more detail — otherwise finish on your answer, not on a question.
-- For academics: name the concept in one plain sentence, then add a short question only if it genuinely helps them go further.
-- For career: give one concrete next step; only ask a direction question if it helps, never instead of a next step.
-- For mental health: one warm validating sentence. If loneliness/social isolation is the issue, prioritize concrete, low-pressure connection ideas (shared activity, classmate, club, recurring group) over generic self-soothing. Otherwise give one small, doable suggestion. Grounded in EVIDENCE when present.
+- For academics: give the core idea in a sentence or two, one quick example, then the follow-up question.
+- For career: give one concrete next step, then the follow-up question.
+- For mental health: one warm validating sentence. If loneliness/social isolation is the issue, prioritize concrete, low-pressure connection ideas (shared activity, classmate, club, recurring group) over generic self-soothing. Otherwise give one small, doable suggestion. Grounded in EVIDENCE when present. For mental health the follow-up question must be gentle and supportive, never pushy.
 ` : ''}
 
 STAGE-SPECIFIC BEHAVIOUR:
 1. general — reply warmly and naturally. Short, conversational, no retrieval.
-2. academics — act as an adaptive tutor. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Give a plain definition, an intuitive analogy, then a clear walkthrough with a small concrete example, and answer the actual question. A short practice question at the end is welcome but optional.
+2. academics — act as an adaptive tutor giving a genuinely detailed, well-structured explanation. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Open with a short 3–5 line introduction to the topic that orients the student, then explain the mechanism or reasoning step by step, then give a concrete worked example, and finish with a short practice question or a pointer on what to do next. Answer the actual question that was asked.
 3. career — give a structured, personalized path: acknowledge their goal, name relevant skills/topics, then a practical sequence (learn → practice → projects → apply). Always include the next concrete step; a focusing follow-up question is optional.
 4. mental_health (any risk level, including high) — validate their feelings without overreacting, stay calm and non-judgmental, and ground concrete suggestions in the retrieved knowledge below whenever it is available. For high risk: motivate them — acknowledge how heavy it is, remind them they have survived hard days before, and leave them with one small doable step and a reason they can do it. Always answer the user's actual question — never reply with generic routing or "share more" prompts. Never diagnose, never claim to be a therapist, never invent medical facts, statistics, or sources.
+
+${!voice && intent === 'mental_health' ? `COUNSELOR DEPTH (chat only):
+- Keep responses warm, empathetic and human. Talk like a kind, grounded peer who actually listens.
+- Follow this structure when helpful:
+  1. VALIDATE — Start by acknowledging how they're feeling. Make it clear their feelings are real and valid.
+  2. UNDERSTAND — Reflect back what they're going through in your own words to show you understand.
+  3. PRACTICAL STEPS — Give 2-3 gentle, actionable suggestions as a pointwise list (use "- " bullets). Each suggestion should be small and doable. Tailor to their situation.
+  4. ENCOURAGE — End with one warm, hopeful sentence reminding them they've gotten through hard days before, or that this moment won't last forever.
+- Drop all slang when someone is in distress. Stay calm and steady, never dismissive or overly cheerful.
+- If loneliness/social isolation is mentioned, prioritize concrete low-pressure connection ideas over generic self-soothing.
+- For high risk: be extra gentle, validate how heavy it is, and give just ONE small doable step with a reason they can do it. Do NOT push multiple suggestions.
+- Never diagnose, never claim to be a therapist, never invent medical facts or statistics.
+- NEVER give a list of hotlines as your only response. Focus on helping them right now.
+- Keep it concise but thorough — aim for 150-250 words.
+` : ''}${!voice && intent === 'academics' ? `ACADEMICS DEPTH (chat only):
+- Write a detailed, ChatGPT-quality answer of roughly 400 to 500 words. This overrides the short paragraph rules above for this reply.
+- Follow this exact structure, in this order:
+  1. DEFINITION — open with a short 3–5 line introduction that defines the topic in plain words and says why it matters. Write this as normal prose (no bullets).
+  2. KEY POINTS — then break the explanation into a pointwise list. Start each point on its own line with "- " (a hyphen and a space). Use 4 to 7 points, each one a single clear sentence (or two at most) covering one idea: how it works, the important properties, rules, or steps. This list is what makes the answer skimmable.
+  3. EXAMPLE — then a short paragraph with one concrete worked example that walks through a real case from the key points above.
+  4. CODE — only when code applies (see below), give the fenced code block after the example.
+  5. CLOSE — finish with one short line: a practice question or the next thing to study.
+- Be specific and technical, but explain in plain, friendly language. Use the terminology of the subject.
+- NEVER pad with filler to reach the length. Every line must teach something. If the honest answer is shorter, prefer being correct and useful over hitting a word count.
+- The ONLY markdown allowed is the "- " list markers in KEY POINTS and the code fences. No bold, no headings, no numbered lists, no tables, no links.
+${isCoding ? `- This question is about CODE. You MUST include a working example in a fenced code block.
+- Pick the language the question implies (Python for DSA/algorithms unless another is named, SQL for queries, the relevant language otherwise).
+- Keep the code to roughly 70–100 lines: complete enough to run and to show the full idea, with short comments on the non-obvious lines. No placeholder "..." bodies.
+- Output the code inside triple backticks with the language name on the opening fence, e.g. \`\`\`python. The code block is the ONLY exception to the plain-prose rule below.
+- Follow the code with one or two sentences on how it works and its time/space complexity where relevant.` : `- If the topic genuinely benefits from showing code, follow the same fenced-code rules: triple backticks with the language name, roughly 70–100 lines, complete and runnable. Otherwise skip the code step and let the example paragraph carry it.`}
+` : ''}
 
 EVIDENCE (only when retrieved — may be empty):
 ${evidenceUsed && evidence.length
@@ -280,11 +495,14 @@ ${evidenceUsed && evidence.length
 OUTPUT FORMAT:
 - Start immediately with your reply text. No preamble, no sign-off about what you are about to do.
 - Separate paragraphs with a single blank line.
-- Write plain prose only. NO markdown, NO bold, NO headings, NO bullet or numbered lists, NO links, NO JSON, NO code fences.
+- Write plain prose only. NO markdown, NO bold, NO headings, NO numbered lists, NO links, NO JSON.
+- Two exceptions, and only these: a fenced code block (triple backticks with the language name on the opening fence, e.g. \`\`\`python), and the "- " list markers used for the KEY POINTS list in a detailed tutor (academics) answer. Never use fences for anything except code.
 
 FORMATTING RULES:
 - Each paragraph is 1–3 short, warm, human sentences.
 - Paragraph count: general = 0–1 body; academics/career = up to 3 body; mental_health = 2–3 short body grounded in EVIDENCE.
+- When ACADEMICS DEPTH applies (detailed tutor answer), this paragraph cap is lifted — write the full structured answer described there (definition, then a "- " key-points list, then an example, then optional code, then a closing line).
+- When COUNSELOR DEPTH applies (mental_health chat), keep to that structure: validate, understand, practical steps (2–3 bullets), encourage. You may still use "- " bullets for the practical steps.
 - The first paragraph must directly address the student; never repeat yourself in the last paragraph.
 
 ALWAYS:
@@ -307,7 +525,7 @@ ALWAYS:
     user: text,
     history,
     temperature: voice ? 0.7 : 0.6,
-    maxTokens: voice ? 600 : 900,
+    maxTokens,
     reasoningEffort: voice ? 'low' : undefined,
     onDelta: emit,
     signal,
@@ -617,20 +835,38 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     prisma.chatMessage.findMany({
       where: { sessionId: session.id, role: { in: ['user', 'assistant'] } },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      // Fetch a few more rows than we send so trimming by size still has the
+      // newest turns available. Voice needs far less context than chat: its
+      // replies are short, so a long tail of history costs tokens without
+      // improving the answer.
+      take: voice ? 8 : 14,
     }),
     userId ? buildUserContext(userId) : Promise.resolve(null),
   ])
 
-  // `historyRows` comes back newest-first (orderBy desc). Keep the newest 16 and
-  // flip to chronological order before sending: passing it reversed left the
+  // `historyRows` comes back newest-first (orderBy desc). Keep the newest turns
+  // and flip to chronological order before sending: passing it reversed left the
   // session's first question immediately before the current one, so the model
   // treated the previous question as part of the new message and answered both
   // (seen in academics, general, and mental-health chats alike).
-  const history = historyRows
-    .slice(0, 16)
-    .reverse()
-    .map((m) => ({ role: m.role, content: m.content }))
+  //
+  // Long past replies are truncated (an earlier 500-word tutor answer is mostly
+  // stale context) and the total character budget is capped, which is the single
+  // biggest lever on prompt tokens.
+  const HISTORY_TURNS = voice ? 6 : 10
+  const HISTORY_CHARS = voice ? 1800 : 4000
+  const trimmed = []
+  let usedChars = 0
+  for (const m of historyRows) {
+    if (trimmed.length >= HISTORY_TURNS) break
+    let content = m.content
+    const perMessage = voice ? 300 : 700
+    if (content.length > perMessage) content = `${content.slice(0, perMessage)}…`
+    if (usedChars + content.length > HISTORY_CHARS) break
+    usedChars += content.length
+    trimmed.push({ role: m.role, content })
+  }
+  const history = trimmed.reverse()
 
   const result = await runPipeline(text, history, userContext, { onDelta, onMeta, onRevision, signal, analysis, voice })
 
@@ -666,7 +902,7 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
   })
 
   const sessionData = {}
-  if (session.title === 'New chat') sessionData.title = text.slice(0, 48)
+  // Generate summary after getting messages
   const insightIntent = result.intent === 'general' ? session.intent || null : result.intent
   if (insightIntent) sessionData.intent = insightIntent
 
@@ -674,6 +910,21 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
     where: { id: session.id },
     data: { ...sessionData, updatedAt: new Date() },
   })
+
+  // Update title with summary if it's the first exchange or if needed
+  if (session.title === 'New chat' && updated.messageCount > 0) {
+    // Fetch all messages for summary
+    const allMsgs = await prisma.chatMessage.findMany({
+      where: { sessionId: session.id },
+      orderBy: { createdAt: 'asc' },
+      select: { content: true, role: true },
+    })
+    generateSessionSummary(allMsgs).then((summary) => {
+      if (summary) {
+        prisma.chatSession.update({ where: { id: session.id }, data: { title: summary } }).catch(() => {})
+      }
+    })
+  }
 
   return {
     reply: result.reply,

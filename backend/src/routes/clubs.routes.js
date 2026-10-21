@@ -33,6 +33,35 @@ clubsRoutes.get('/joined', async (req, res, next) => {
   }
 })
 
+clubsRoutes.get('/:id/members', async (req, res, next) => {
+  try {
+    const clubId = Number(req.params.id)
+    const club = await prisma.club.findUnique({ where: { id: clubId } })
+    const memberships = await prisma.clubMember.findMany({
+      where: { clubId },
+      include: { user: { select: { id: true, name: true, role: true, avatar: true } } },
+      orderBy: { createdAt: 'asc' },
+    })
+    const result = memberships.map((m) => ({
+      id: m.user.id,
+      name: m.user.name,
+      role: m.role || 'member',
+      avatar: m.user.avatar,
+      ownerId: club ? club.ownerId : null,
+    }))
+    // ensure owner is included even if not in membership table
+    if (club?.ownerId && !result.some((m) => m.id === club.ownerId)) {
+      const owner = await prisma.user.findUnique({ where: { id: club.ownerId }, select: { id: true, name: true, avatar: true } })
+      if (owner) {
+        result.unshift({ id: owner.id, name: owner.name, avatar: owner.avatar, role: 'owner', ownerId: club.ownerId })
+      }
+    }
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
 clubsRoutes.get('/:id/messages', async (req, res, next) => {
   try {
     const messages = await prisma.clubMessage.findMany({

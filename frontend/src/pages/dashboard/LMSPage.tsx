@@ -117,7 +117,7 @@ export function LMSPage() {
   const [tab, setTab] = useState<LmsTab>('dashboard')
   const [courses, setCourses] = useState<Course[]>([])
   const [enrolled, setEnrolled] = useState<Enrollment[]>([])
-  const [quizzes, setQuizzes] = useState<QuizLike[]>([])
+  const [, setQuizzes] = useState<QuizLike[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [loading, setLoading] = useState(true)
   // The viewer's role decides which dashboard renders, so nothing is painted
@@ -214,7 +214,6 @@ export function LMSPage() {
                 <StudentDashboard
                   courses={courses}
                   enrolled={enrolled}
-                  quizzes={quizzes}
                   assignments={assignments}
                   onOpenAssignments={() => setTab('assignments')}
                 />
@@ -317,13 +316,11 @@ function StudentAssignmentsTab({
 function StudentDashboard({
   courses,
   enrolled,
-  quizzes,
   assignments,
   onOpenAssignments,
 }: {
   courses: Course[]
   enrolled: Enrollment[]
-  quizzes: QuizLike[]
   assignments: Assignment[]
   onOpenAssignments: () => void
 }) {
@@ -472,28 +469,6 @@ function StudentDashboard({
             </div>
           </div>
 
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <CheckCircle2 size={14} className="text-ice" />
-              <h2 className="text-sm font-semibold text-ink">Upcoming Quizzes</h2>
-            </div>
-            <div className="space-y-2">
-              {quizzes.length === 0 && (
-                <p className="rounded-lg border border-line p-3 text-sm text-muted">No quizzes scheduled.</p>
-              )}
-              {quizzes.map((q) => (
-                <div key={q.id} className="glass-ice flex items-center justify-between rounded-lg p-3 text-sm">
-                  <div>
-                    <p className="font-mono text-[10px] text-ice">{q.title}</p>
-                    <p className="text-sm font-medium text-ink">
-                      {courses.find((c) => c.quizzes.some((x) => x.id === q.id))?.code ?? 'Course'}
-                    </p>
-                  </div>
-                  <p className="shrink-0 text-xs text-muted">{q.date}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>
