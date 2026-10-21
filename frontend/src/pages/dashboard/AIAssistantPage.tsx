@@ -544,7 +544,7 @@ export function AIAssistantPage() {
 
         <div className="flex min-h-0 flex-1">
           <ChatHistory
-            className="ml-[19px] w-[260px] shrink-0"
+            className="ml-4 w-[280px] shrink-0"
             sessions={sessions.map((s) => ({ id: s.id, title: sessionLabel(s) }))}
             activeId={sessionId}
             loading={loading}
@@ -556,9 +556,9 @@ export function AIAssistantPage() {
             onSearchChange={setSearch}
           />
 
-          <div className="ml-4 mr-0 h-full w-px bg-vc-line" />
+          <div className="ml-5 mr-0 h-full w-px bg-vc-line" />
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-4">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-6">
             {/* The scroller and the composer are separate flex children so the
                 transcript can never scroll underneath the composer panel. */}
             <div className="relative min-h-0 flex-1">
@@ -572,7 +572,7 @@ export function AIAssistantPage() {
               >
                 <div
                   className={clsx(
-                    'mx-auto w-full max-w-[720px]',
+                    'mx-auto w-full max-w-[860px]',
                     isEmpty ? 'pb-[54px]' : 'pt-6 pb-16',
                   )}
                 >
@@ -648,7 +648,7 @@ export function AIAssistantPage() {
             </div>
 
         <div className="shrink-0 px-5 pb-4">
-          <div className="mx-auto w-full max-w-[720px]">
+          <div className="mx-auto w-full max-w-[860px]">
             {!isEmpty && (
               <Composer
                 value={input}

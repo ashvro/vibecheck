@@ -53,14 +53,14 @@ export function ChatHistory({
       <button
         type="button"
         onClick={onNewChat}
-        className="vc-glass-plum flex h-9 w-full items-center gap-2.5 rounded-lg border border-vc-line-strong px-2 text-left text-[13px] font-medium text-vc-ink transition hover:border-vc-check"
+        className="vc-glass-plum flex h-10 w-full items-center gap-2.5 rounded-lg border border-vc-line-strong px-2 text-left text-[14px] font-medium text-vc-ink transition hover:border-vc-check"
       >
         <Pencil className="h-3.5 w-3.5 text-vc-ink-2" strokeWidth={1.75} />
         New chat
       </button>
 
       {searching ? (
-        <div className="mt-1 flex h-9 items-center gap-2.5 rounded-lg bg-vc-surface-2/50 px-2">
+        <div className="mt-1 flex h-10 items-center gap-2.5 rounded-lg bg-vc-surface-2/50 px-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-vc-ink-2" strokeWidth={1.75} />
           <input
             ref={searchRef}
@@ -84,7 +84,7 @@ export function ChatHistory({
         </button>
       )}
 
-      <div className="vc-scroll mt-2 max-h-[210px] overflow-y-auto pb-1">
+      <div className="vc-scroll mt-2 max-h-[260px] overflow-y-auto pb-1">
         <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-vc-ink-2">Recent</p>
         {!loading && filtered.length === 0 && (
           <p className="px-2 py-3 text-[12px] leading-relaxed text-vc-ink-3">
@@ -95,7 +95,7 @@ export function ChatHistory({
           <div
             key={s.id}
             className={clsx(
-              'group/x flex h-9 items-center rounded-lg border transition',
+              'group/x flex h-10 items-center rounded-lg border transition',
               s.id === activeId
                 ? 'vc-glass-plum border-vc-line-strong text-vc-ink'
                 : 'border-transparent text-vc-rail-text hover:bg-vc-row/60 hover:text-vc-ink',
@@ -104,7 +104,7 @@ export function ChatHistory({
             <button
               type="button"
               onClick={() => onSelect(s.id)}
-              className="min-w-0 flex-1 truncate pr-1 pl-2 text-left text-[13px]"
+              className="min-w-0 flex-1 truncate pr-1 pl-2 text-left text-[14px]"
             >
               {s.title}
             </button>

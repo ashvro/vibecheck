@@ -912,18 +912,18 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
   })
 
   // Update title with summary if it's the first exchange or if needed
-  if (session.title === 'New chat' && updated.messageCount > 0) {
-    // Fetch all messages for summary
-    const allMsgs = await prisma.chatMessage.findMany({
-      where: { sessionId: session.id },
-      orderBy: { createdAt: 'asc' },
-      select: { content: true, role: true },
+  if (session.title === 'New chat') {
+    const allMsgs = await prisma.chatSession.findUnique({
+      where: { id: session.id },
+      include: { messages: { orderBy: { createdAt: 'asc' }, select: { content: true, role: true } } },
     })
-    generateSessionSummary(allMsgs).then((summary) => {
-      if (summary) {
-        prisma.chatSession.update({ where: { id: session.id }, data: { title: summary } }).catch(() => {})
-      }
-    })
+    const msgs = allMsgs?.messages ?? []
+    const summary = await generateSessionSummary(msgs)
+    if (summary) {
+      const updatedWithTitle = await prisma.chatSession.update({ where: { id: session.id }, data: { title: summary } })
+      // reflect updated title in response
+      updated.title = updatedWithTitle.title
+    }
   }
 
   return {

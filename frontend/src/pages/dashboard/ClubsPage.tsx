@@ -9,12 +9,9 @@ import {
   LogOut,
   MoreHorizontal,
   Music,
-  Paperclip,
-  Pin,
   Plus,
   Search,
   Send,
-  Smile,
   Trash2,
   Trophy,
   VolumeX,
@@ -79,7 +76,7 @@ type ClubMember = {
   ownerId: number | null
 }
 
-const swatches = ['#8b5cf6', '#b8a4e0', '#d4b896', '#9db8a8', '#38bdf8', '#f43f5e']
+const swatches = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#38bdf8', '#f43f5e']
 
 function normalizeCategory(tag: string): string {
   const t = (tag || '').trim()
@@ -509,7 +506,7 @@ export function ClubsPage() {
                 <p className="truncate text-sm font-semibold text-ink">{active.name}</p>
                 <div className="mt-0.5 flex items-center gap-2.5">
                   <span className="flex items-center gap-1 font-mono text-[9px] tracking-[0.12em] text-muted uppercase">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-soft" /> 1 online · {active.members} members
+                    {active.members} members
                   </span>
                 </div>
               </div>
@@ -519,13 +516,6 @@ export function ClubsPage() {
               <button type="button" aria-label="More" className="flex h-8 w-8 items-center justify-center rounded-lg border border-ice/10 text-muted transition hover:text-ice">
                 <MoreHorizontal className="h-4 w-4" />
               </button>
-            </div>
-
-            {/* Pinned strip */}
-            <div className="flex items-center gap-2 border-b border-line/70 bg-surface-2/40 px-4 py-2">
-              <Pin className="h-3.5 w-3.5 text-amber-gentle" />
-              <span className="font-mono text-[9px] tracking-[0.14em] text-muted uppercase">Pinned</span>
-              <span className="text-xs text-ink/90">Share your day, be kind, no judgement.</span>
             </div>
 
             {/* Messages */}
@@ -578,18 +568,12 @@ export function ClubsPage() {
 
             {/* Message bar */}
             <form onSubmit={sendMessage} className="flex items-center gap-2 border-t border-line/70 p-3">
-              <button type="button" aria-label="Attach" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ice/10 text-muted transition hover:text-ice">
-                <Paperclip className="h-4 w-4" />
-              </button>
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={`Message ${active.name}…`}
                 className="flex-1 rounded-xl border border-ice/10 bg-thaw px-3 py-2 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
               />
-              <button type="button" aria-label="Emoji" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-ice/10 text-muted transition hover:text-ice">
-                <Smile className="h-4 w-4" />
-              </button>
               <button
                 type="submit"
                 aria-label="Send"
@@ -790,24 +774,6 @@ export function ClubsPage() {
                       )}
                     </div>
 
-                    {/* member avatars stack */}
-                    <div className="mt-3 flex items-center gap-2">
-                      <div className="flex -space-x-2">
-                        {Array.from({ length: Math.min(Math.max(club.members, 1), 4) }).map((_, i) => (
-                          <span
-                            key={i}
-                            className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-thaw text-[9px] font-semibold"
-                            style={{ backgroundColor: `${club.accent}${i === 0 ? '44' : '22'}`, color: accentInk(club.accent) }}
-                          >
-                            {clubInitial(club.name)}
-                          </span>
-                        ))}
-                      </div>
-                      {club.members > 4 && (
-                        <span className="font-mono text-[9px] text-muted">+{club.members - 4}</span>
-                      )}
-                    </div>
-
                     <button
                       type="button"
                       onClick={() => openClub(club.id)}
@@ -942,21 +908,6 @@ export function ClubsPage() {
                   </div>
 
                   <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">{club.description}</p>
-
-                  {/* member avatars */}
-                  <div className="mt-3 flex items-center gap-2">
-                    <div className="flex -space-x-2">
-                      {Array.from({ length: Math.min(Math.max(club.members, 1), 4) }).map((_, i) => (
-                        <span
-                          key={i}
-                          className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-thaw text-[8px] font-semibold"
-                          style={{ backgroundColor: `${club.accent}${i === 0 ? '44' : '22'}`, color: accentInk(club.accent) }}
-                        >
-                          {clubInitial(club.name)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
 
                   <div className="mt-auto flex items-center justify-between pt-3">
                     <div className="relative">
@@ -1167,10 +1118,12 @@ export function ClubsPage() {
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-ink">{draftClub.name || 'Campus Coders'}</p>
                         <span
-                          className={clsx(
-                            'mt-1 inline-flex rounded-full border px-2 py-0.5 font-mono text-[8px] tracking-[0.14em] uppercase',
-                            catStyles[draftClub.category],
-                          )}
+                          className="mt-1 inline-flex rounded-full border px-2 py-0.5 font-mono text-[8px] tracking-[0.14em] uppercase"
+                          style={{
+                            borderColor: `${draftClub.accent}66`,
+                            color: draftClub.accent,
+                            background: `${draftClub.accent}1f`,
+                          }}
                         >
                           {draftClub.category}
                         </span>
