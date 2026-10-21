@@ -71,30 +71,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           className="flex items-center gap-3 px-2 pb-1 no-underline"
           onClick={onClose}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 58" width="58" height="58" style={{ filter: 'drop-shadow(0 0 14px rgba(192,107,255,.5))' }}>
-            <defs>
-              <linearGradient id="hg" x1="0" y1="0" x2="58" y2="58" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stop-color="#ff7ac3"/>
-                <stop offset="0.5" stop-color="#c06bff"/>
-                <stop offset="1" stop-color="#5b21b6"/>
-              </linearGradient>
-            </defs>
-            <g fill="none" stroke="url(#hg)" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
-              <path d="M20 38 L12 26"/>
-              <path d="M40 32 L48 14"/>
-              <path d="M28 17 L24 28"/>
-              <path d="M34 16 L30 28"/>
-              <path d="M40 19 L36 29"/>
-              <path d="M20 34 C17 41 18 47 23 50 L23 57 L37 57 L37 50 C43 46 45 40 40 32 Q30 25 20 34 Z" fill="url(#hg)" stroke="none"/>
-            </g>
-            <g fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round">
-              <path d="M22 37 L25 44 L28 37"/>
-              <path d="M38 38 A4 4 0 1 0 38 43"/>
-            </g>
-            <g fill="#ff7ac3">
-              <path d="M54 6 L55 8 L57 9 L55 10 L54 12 L53 10 L51 9 L53 8 Z" opacity="0.9"/>
-            </g>
-          </svg>
+          <img
+            src="/vibecheck_hand_logo.svg"
+            alt="VibeCheck hand logo"
+            width={58}
+            height={58}
+            style={{ filter: 'drop-shadow(0 0 14px rgba(192,107,255,.5))' }}
+          />
           <div className="flex flex-col gap-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 22" width="130" height="19" style={{ height: 19 }}>
               <defs>
