@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Outlet, useLocation, NavLink, Link } from 'react-router-dom'
+import { Outlet, useLocation, NavLink } from 'react-router-dom'
 import { Menu, X, LayoutDashboard, Bot, Users, UsersRound, Heart, BookOpen, BarChart3, CalendarRange } from 'lucide-react'
 import clsx from 'clsx'
 import { getUser } from '../../lib/api'
@@ -118,7 +118,7 @@ export function DashboardLayout() {
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
             padding: '24px',
-            minHeight: 'calc(100vh - 250px)',
+            minHeight: 'calc(100vh - 282px)',
           }}
         >
           {/* Bottom fade mask */}
@@ -128,7 +128,7 @@ export function DashboardLayout() {
               WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
             }}
           >
-            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 170 }}>
+            <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 150 }}>
               <div key={pathname} className="page-enter">
                 <Outlet />
               </div>
@@ -187,7 +187,7 @@ export function DashboardLayout() {
             )}
           </NavLink>
         ))}
-        <Link
+        <NavLink
           to="/app/profile"
           className="ml-2 flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-full border-2 text-white transition hover:scale-105"
           style={{
@@ -196,7 +196,7 @@ export function DashboardLayout() {
           }}
         >
           <span className="text-lg font-bold">{initial}</span>
-        </Link>
+        </NavLink>
       </nav>
     </div>
   )
