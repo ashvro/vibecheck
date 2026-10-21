@@ -11,6 +11,7 @@ const links: { to: string; label: string }[] = [
   { to: '/app/lms', label: 'LMS Portal' },
   { to: '/app/analytics', label: 'Analytics' },
   { to: '/app/study-planner', label: 'Study Planner' },
+  { to: '/app/relaxation', label: 'Relaxation' },
 ]
 
 type SidebarProps = {

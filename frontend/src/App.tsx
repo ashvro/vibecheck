@@ -9,6 +9,7 @@ import { ClubsPage } from './pages/dashboard/ClubsPage'
 import { LMSPage } from './pages/dashboard/LMSPage'
 import { AnalyticsPage } from './pages/dashboard/AnalyticsPage'
 import { StudyPlannerPage } from './pages/dashboard/StudyPlannerPage'
+import { RelaxationPage } from './pages/dashboard/RelaxationPage'
 import { ProfilePage } from './pages/dashboard/ProfilePage'
 
 export default function App() {
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="lms" element={<LMSPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="study-planner" element={<StudyPlannerPage />} />
+          <Route path="relaxation" element={<RelaxationPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
