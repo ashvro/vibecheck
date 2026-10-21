@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+
 import { NavLink, Link } from 'react-router-dom'
 import clsx from 'clsx'
-import { Search } from 'lucide-react'
 import { getUser } from '../../lib/api'
 
 const links: { to: string; label: string }[] = [
@@ -20,21 +19,8 @@ type SidebarProps = {
 }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
-  const [search, setSearch] = useState('')
   const user = getUser()
   const initial = (user?.name ? String(user.name).charAt(0).toUpperCase() : 'U')
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        const el = document.getElementById('sidebar-search')
-        if (el) el.focus()
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [])
 
   return (
     <>
@@ -101,43 +87,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             background: 'linear-gradient(90deg, transparent, rgba(196,165,255,.5), rgba(255,122,195,.4), transparent)',
           }}
         />
-
-        {/* Search bar */}
-        <div
-          className="flex items-center gap-2"
-          style={{
-            height: 42,
-            borderRadius: 21,
-            background: 'rgba(255,255,255,.045)',
-            border: '1px solid rgba(255,255,255,.10)',
-            margin: '0 4px 22px',
-            padding: '0 14px',
-          }}
-        >
-          <Search size={15} style={{ color: '#7f77a6', flexShrink: 0 }} />
-          <input
-            id="sidebar-search"
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search anything"
-            className="flex-1 bg-transparent outline-none"
-            style={{ fontSize: 14, color: '#a89fcc' }}
-          />
-          <span
-            style={{
-              fontFamily: 'IBM Plex Mono, ui-monospace, monospace',
-              fontSize: '10.5px',
-              borderRadius: 7,
-              background: 'rgba(255,255,255,.07)',
-              border: '1px solid rgba(255,255,255,.10)',
-              padding: '2px 6px',
-              color: '#7f77a6',
-            }}
-          >
-            Ctrl K
-          </span>
-        </div>
 
         {/* Tabs */}
         <nav aria-label="Main" className="flex flex-1 flex-col gap-1.5 overflow-y-auto">

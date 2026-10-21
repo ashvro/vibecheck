@@ -1,4 +1,4 @@
-import { Bell, Menu, Search } from 'lucide-react'
+import { Bell, Menu } from 'lucide-react'
 
 type TopNavbarProps = {
   onMenuClick: () => void
@@ -16,14 +16,7 @@ export function TopNavbar({ onMenuClick }: TopNavbarProps) {
         <Menu className="h-5 w-5" />
       </button>
 
-      <div className="relative hidden min-w-0 flex-1 md:block md:max-w-sm">
-        <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-ice/35" />
-        <input
-          type="search"
-          placeholder="Search…"
-          className="w-full border border-ice/10 bg-ice/[0.03] py-1.5 pr-3 pl-9 text-sm text-ink outline-none transition placeholder:text-ice/35 focus:border-ice/30 focus:bg-ice/[0.05]"
-        />
-      </div>
+
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <button
