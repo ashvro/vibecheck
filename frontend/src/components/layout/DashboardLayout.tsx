@@ -33,7 +33,7 @@ export function DashboardLayout() {
           width: 420,
           height: 420,
           borderRadius: '50%',
-          background: 'rgba(139,92,246,.55)',
+          background: 'rgba(139,92,246,.65)',
           filter: 'blur(90px)',
           opacity: 0.7,
           zIndex: 0,
