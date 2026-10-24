@@ -56,24 +56,30 @@
      scopes — so the assistant keeps its own palette no matter which app theme
      is active. Nothing outside `components/assistant/*` reads them.
      ---------------------------------------------------------------------- */
-  --color-vc-bg: #16111f; /* page canvas — deep plum */
-  --color-vc-voice-bg: #100b1a; /* voice stage — darker, so the orb leads */
-  --color-vc-rail: #1a1524; /* rail / glass panels */
-  --color-vc-surface: #241e30; /* cards + composer */
-  --color-vc-surface-2: #2e2639; /* active pill */
-  --color-vc-bubble: #332a44; /* user bubble / avatars / send */
-  --color-vc-row: #2a2235; /* selected rail row */
-  --color-vc-line: #342c42; /* hairline borders + dividers */
-  --color-vc-line-strong: #453a58; /* composer border */
-  --color-vc-check: #9a8fb0; /* plan-row checkbox outline */
-  --color-vc-ink: #f0ebf8; /* primary text */
-  --color-vc-ink-2: #9a8fb0; /* secondary text */
-  --color-vc-ink-3: #7d7391; /* tertiary text */
-  --color-vc-rail-text: #c4bde6; /* rail item text */
-  --color-vc-counselor: #9db8a8; /* mental_health */
-  --color-vc-tutor: #d4b896; /* academics */
-  --color-vc-general: #b8a4e0; /* career / general */
-  --color-vc-alert: #d4c4f5; /* urgent-help link */
+  --color-vc-bg: #0b0918; /* page canvas — deep purple */
+  --color-vc-voice-bg: #0b0918; /* voice stage */
+  --color-vc-rail: #1a1430; /* rail / code panels */
+  --color-vc-surface: #1c1630; /* cards + composer */
+  --color-vc-surface-2: #2a2144; /* active pill */
+  --color-vc-bubble: #241b3c; /* user bubble / avatars / send */
+  --color-vc-row: #1e1734; /* selected rail row */
+  --color-vc-line: rgba(255, 255, 255, 0.1); /* hairline borders + dividers */
+  --color-vc-line-strong: rgba(255, 255, 255, 0.18); /* composer border */
+  --color-vc-check: #a098c0; /* plan-row checkbox outline */
+  --color-vc-ink: #f4f1ff; /* primary text */
+  --color-vc-ink-2: #a098c0; /* secondary text */
+  --color-vc-ink-3: #7e76a0; /* tertiary text */
+  --color-vc-rail-text: #cfc8f0; /* rail item text */
+  --color-vc-counselor: #b25aec; /* mental_health */
+  --color-vc-tutor: #9682eb; /* academics */
+  --color-vc-general: #7c6cf0; /* career / general */
+  --color-vc-alert: #f0707c; /* urgent-help link */
+  --color-vc-card: rgba(26, 22, 52, 0.88); /* glass card fill */
+  --color-vc-card-line: rgba(150, 130, 255, 0.18); /* glass card border */
+  --color-vc-hairline: rgba(255, 255, 255, 0.1); /* hairline divider */
+  --color-vc-accent: #7c6cf0; /* primary accent */
+  --color-vc-accent-2: #ac52ee; /* secondary accent */
+  --color-vc-chip-active: rgba(124, 108, 240, 0.22); /* selected chip fill */
 }
 
 /* --------------------------------------------------------------------------
@@ -712,22 +718,347 @@ html.theme-switching *::after {
     isolation: isolate;
   }
 
+  /* App content frame — the glass card every /app tab renders inside.
+     Border + glow match the bottom dock (masked --c1..--c4 gradient ring,
+     tri-color halo via box-shadow). `.content-frame-aurora` is the huge
+     rotating conic layer *behind* the frosted inner — it's what makes the
+     glass center slowly shimmer. overflow:hidden clips its oversized sweep. */
+  .content-frame {
+    position: relative;
+    border-radius: 32px;
+    padding: 1.5px;
+    overflow: hidden;
+    isolation: isolate;
+    box-shadow:
+      0 0 36px rgba(139, 92, 246, 0.26),
+      0 0 76px rgba(124, 58, 237, 0.16);
+  }
+
+  .content-frame-aurora {
+    position: absolute;
+    inset: -120%;
+    z-index: 0;
+    /* Calm duotone: just violet and lavender, first = last stop for a
+       seamless spin. Reads as one soft purple light, not a color wheel. */
+    background: conic-gradient(
+      from 0deg,
+      #6d28d9 0%,
+      #a78bfa 22%,
+      #4c1d95 44%,
+      #8b5cf6 64%,
+      #c4b5fd 84%,
+      #6d28d9 100%
+    );
+    animation: landing-nav-border-spin 8s linear infinite;
+  }
+
+  .content-frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: linear-gradient(115deg, var(--c1), var(--c2) 30%, var(--c3) 62%, var(--c4));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .content-frame-inner {
+    position: relative;
+    z-index: 1;
+    border-radius: 30px;
+    background: rgba(18, 15, 24, 0.88);
+    backdrop-filter: blur(14px) saturate(1.1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .content-frame-aurora {
+      animation: none;
+    }
+  }
+
+
+  /* ---- Floating bottom dock (primary nav) --------------------------------
+     Theme colors live in one place: change --c1..--c4 to retheme the whole
+     border, glow, avatar ring and focus ring at once. */
+  :root {
+    --c1: #22d3ee;
+    --c2: #8b5cf6;
+    --c3: #e879f9;
+    --c4: #fb7185;
+  }
+
+  .dock-wrap {
+    position: fixed;
+    /* 32px head-room so the active orb popping above the bar is never
+       clipped when narrow screens turn this wrapper into a scroller,
+       36px tail-room to sit ~36px above the viewport bottom. */
+    padding: 32px 10px 36px;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 16px);
+    z-index: 40;
+  }
+
+  /* Soft elliptical light pooling under the bar. */
+  .dock-floor-glow {
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    bottom: 20px;
+    height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(192, 132, 252, 0.67), transparent);
+    filter: blur(6px);
+    pointer-events: none;
+  }
+
+  .dock {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 84px;
+    padding: 0 18px 10px;
+    border-radius: 44px;
+    background: linear-gradient(180deg, #221743, #130c28);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.19),
+      inset 0 -18px 30px rgba(0, 0, 0, 0.33),
+      0 24px 60px rgba(0, 0, 0, 0.8);
+  }
+
+  /* 1.5px gradient border ring (mask keeps the center transparent). */
+  .dock::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: linear-gradient(115deg, var(--c1), var(--c2) 30%, var(--c3) 62%, var(--c4));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Blurred outer glow of the same gradient. */
+  .dock::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    z-index: -1;
+    background: linear-gradient(115deg, var(--c1), var(--c2) 30%, var(--c3) 62%, var(--c4));
+    filter: blur(26px);
+    opacity: 0.55;
+  }
+
+  .dock-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    width: 86px;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #9a92c0;
+    font: inherit;
+    cursor: pointer;
+    transition: transform 0.25s ease, color 0.25s ease;
+  }
+
+  .dock-item:hover {
+    color: #fff;
+  }
+
+  .dock-item:hover .dock-icon {
+    transform: translateY(-3px);
+    box-shadow:
+      0 0 0 2px rgba(19, 12, 40, 0.9),
+      0 0 18px rgba(168, 85, 247, 0.55),
+      0 0 30px 6px rgba(192, 38, 212, 0.28);
+  }
+
+  .dock-icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    /* Every icon wears the popped-up look by default: conic ring, dark
+       core, soft glow. The active tab is the same orb, just lifted above
+       the bar with a stronger glow. */
+    background: conic-gradient(from 200deg, var(--c1), var(--c2), var(--c3), var(--c4), var(--c1));
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .dock-icon::before {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    /* Darker purple core — ring, glow, icons and animations untouched. */
+    background: linear-gradient(135deg, #2b1755, #140b2e);
+  }
+
+  .dock-icon svg {
+    position: relative;
+    width: 23px;
+    height: 23px;
+    color: #fff;
+    filter: drop-shadow(0 0 3px rgba(216, 180, 254, 0.5));
+  }
+
+  .dock-label {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  /* Glowing dot under the active label. Absolutely positioned so it never
+     takes layout space — resting orbs stay low, no shift on activation. */
+  .dock-dot {
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: transparent;
+  }
+
+  .dock-divider {
+    align-self: flex-end;
+    width: 1px;
+    height: 26px;
+    flex-shrink: 0;
+    margin: 0 10px;
+    margin-bottom: 32px;
+    /* Sits up beside the orb row — never behind the labels. */
+    background: linear-gradient(180deg, transparent, rgba(167, 139, 250, 0.42) 40%, transparent);
+  }
+
+  /* Active item — same orb, raised a little above the bar and highlighted
+     with a bright neon ring + stronger glow so it clearly reads as current. */
+  .dock-item[aria-current='page'] {
+    color: #fff;
+  }
+
+  .dock-item[aria-current='page'] .dock-icon {
+    transform: translateY(-12px);
+    margin-bottom: -12px;
+    box-shadow:
+      0 0 0 2px #130c28,
+      0 0 0 3.5px #e879f9,
+      0 0 20px 2px rgba(168, 85, 247, 0.7),
+      0 0 44px 8px rgba(192, 38, 212, 0.38);
+  }
+
+  .dock-item[aria-current='page'] .dock-icon svg {
+    filter: drop-shadow(0 0 6px #fff);
+  }
+
+  .dock-item[aria-current='page'] .dock-label {
+    color: #fff;
+    text-shadow: 0 0 12px rgba(216, 180, 254, 0.67);
+  }
+
+  .dock-item[aria-current='page'] .dock-dot {
+    background: #f0abfc;
+    box-shadow: 0 0 10px 2px #e879f9;
+  }
+
+  /* Profile is a regular dock item — same orb, same alignment, plus a
+     label like every other tab. */
+  .dock-profile {
+    margin-left: 8px;
+  }
+
+  .dock-avatar-letter {
+    position: relative;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    filter: drop-shadow(0 0 4px rgba(216, 180, 254, 0.6));
+  }
+
+  .dock-avatar-dot {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fb7185;
+    border: 2.5px solid #130c28;
+    box-shadow: 0 0 8px 2px rgba(251, 113, 133, 0.65);
+  }
+
+  .dock-item:focus-visible {
+    outline: 2px solid var(--c3);
+    outline-offset: 3px;
+  }
+
+  /* Narrow screens: inactive labels hide, active label + orb stay. */
+  @media screen and (max-width: 899px) {
+    .dock-wrap {
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .dock-wrap::-webkit-scrollbar {
+      display: none;
+    }
+
+    .dock-label {
+      display: none;
+    }
+
+    .dock-item[aria-current='page'] .dock-label {
+      display: block;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dock,
+    .dock-item,
+    .dock-icon {
+      transition: none;
+    }
+  }
+
   .landing-nav-card::before {
     content: '';
     position: absolute;
-    inset: -40%;
+    inset: 0;
     z-index: 0;
-    background: conic-gradient(
-      from 0deg,
-      #f0ebf8 0%,
-      #d4c4f5 18%,
-      #8b5cf6 36%,
-      #b8a4e0 54%,
-      #ffffff 72%,
-      #c4b5fd 86%,
-      #f0ebf8 100%
-    );
-    animation: landing-nav-border-spin 3.5s linear infinite;
+    border-radius: inherit;
+    padding: 1.5px;
+    background: linear-gradient(115deg, #22d3ee, #8b5cf6 30%, #e879f9 62%, #fb7185);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+    animation: landing-nav-glow 2.8s ease-in-out infinite;
+  }
+
+  @keyframes landing-nav-glow {
+    0%, 100% { opacity: 0.55; filter: blur(0px); }
+    50% { opacity: 1; filter: blur(0.6px); }
   }
 
   .landing-nav-card-inner {
@@ -914,6 +1245,32 @@ html.theme-switching *::after {
 
   .hero-chip-float {
     animation: hero-chip-float 6s ease-in-out infinite;
+  }
+
+  @keyframes hero-bg-drift {
+    0% { transform: scale(1.06) translate3d(-1.5%, -1%, 0); }
+    50% { transform: scale(1.1) translate3d(1.5%, 1%, 0); }
+    100% { transform: scale(1.06) translate3d(-1.5%, -1%, 0); }
+  }
+
+  .hero-bg-drift {
+    animation: hero-bg-drift 26s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @keyframes hero-light-sweep {
+    0% { transform: translateX(-120%); opacity: 0; }
+    15% { opacity: 0.35; }
+    50% { opacity: 0.18; }
+    85% { opacity: 0.35; }
+    100% { transform: translateX(120%); opacity: 0; }
+  }
+
+  .hero-light-sweep {
+    background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.35) 50%, transparent 65%);
+    mix-blend-mode: soft-light;
+    animation: hero-light-sweep 9s ease-in-out infinite;
+    will-change: transform, opacity;
   }
 
   .hero-glow {
@@ -2035,6 +2392,15 @@ html.theme-switching *::after {
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-thumb) transparent;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
   ::-webkit-scrollbar {

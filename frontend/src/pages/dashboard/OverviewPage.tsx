@@ -146,16 +146,18 @@ export function OverviewPage() {
         : `Most universities ask for ${ATTENDANCE_MILESTONE}%, so you are ${Math.abs(buffer)} ${Math.abs(buffer) === 1 ? 'point' : 'points'} short.`
 
   return (
-    <div className="rise-grid mx-auto max-w-6xl min-h-[calc(100vh-120px)] flex flex-col justify-center">
-      <header>
-        <p className="text-[15px] leading-none text-muted">
+    <div className="rise-grid mx-auto max-w-[1560px] min-h-[calc(100vh-120px)] flex flex-col">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-4xl font-semibold tracking-tight text-ink sm:text-5xl lg:text-[3.375rem]">
+            {greeting}, {firstName}.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-[17px]">
+            {attendanceLine} {dueLine}
+          </p>
+        </div>
+        <p className="shrink-0 pt-2 text-right text-[15px] leading-none text-muted">
           {weekday} {day} {month}, {time}
-        </p>
-        <h1 className="mt-1.5 text-4xl font-semibold tracking-tight text-ink sm:text-5xl lg:text-[3.375rem]">
-          {greeting}, {firstName}.
-        </h1>
-        <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-[17px]">
-          {attendanceLine} {dueLine}
         </p>
       </header>
 

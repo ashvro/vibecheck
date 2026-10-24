@@ -11,6 +11,7 @@ import { AnalyticsPage } from './pages/dashboard/AnalyticsPage'
 import { StudyPlannerPage } from './pages/dashboard/StudyPlannerPage'
 import { RelaxationPage } from './pages/dashboard/RelaxationPage'
 import { ProfilePage } from './pages/dashboard/ProfilePage'
+import { getToken } from './lib/api'
 
 export default function App() {
   return (
@@ -32,7 +33,11 @@ export default function App() {
             </div>
           }
         />
-        <Route path="/app" element={<DashboardLayout />}>
+        {/* Guests who deep-link into the app get sent to sign in. */}
+        <Route
+          path="/app"
+          element={getToken() ? <DashboardLayout /> : <Navigate to="/login" replace />}
+        >
           <Route index element={<OverviewPage />} />
           <Route path="ai" element={<AIAssistantPage />} />
           <Route path="community" element={<CommunityPage />} />

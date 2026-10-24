@@ -61,6 +61,7 @@ async function fetchWithTimeout(url, options = {}, ms = 30000, externalSignal = 
         const err = new Error(`HTTP ${res.status}: ${body.slice(0, 800)}`)
         err.status = res.status
         if (RETRYABLE.has(res.status) && attempt < 2) {
+          console.warn(`[llm] HTTP ${res.status} — retrying request (${attempt + 1}/2)`)
           await new Promise((r) => setTimeout(r, (attempt + 1) * 1200))
           lastErr = err
           continue

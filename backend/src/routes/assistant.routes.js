@@ -135,23 +135,32 @@ assistantRoutes.get('/sessions', async (req, res, next) => {
       },
     })
     const result = []
+    // Only a chat that has no title yet needs the model. The generated title
+    // is persisted on the session, so re-summarising every conversation on
+    // every list request used to fire one LLM call per chat and left the
+    // endpoint taking ~30s. Un-titled chats are still summarised — in
+    // parallel, so several of them do not stack up.
+    const pending = sessions.filter((s) => (!s.title || s.title === 'New chat') && s.messages.length > 0)
+    const summaries = new Map()
+    await Promise.all(
+      pending.map(async (s) => {
+        const summary = await generateSessionSummary(s.messages, s.userId)
+        summaries.set(s.id, summary)
+      }),
+    )
     for (const s of sessions) {
       let title = s.title
-      // Generate summary if it's a new chat or just started
-      if (!title || title === 'New chat' || s.messages.length >= 1) {
-        // Use cached summary if we have messages
-        if (s.messages.length > 0) {
-          const summary = await generateSessionSummary(s.messages, s.userId)
-          if (summary) {
-            title = summary
-            // Update the session title in background
-            prisma.chatSession.update({ where: { id: s.id }, data: { title } }).catch(() => {})
-          } else if (!title || title === 'New chat') {
-            const firstUserMsg = s.messages.find((m) => m.role === 'user')
-            const firstMsg = firstUserMsg?.content || s.messages[0]?.content || null
-            if (firstMsg) {
-              title = firstMsg.replace(/\n/g, ' ').slice(0, 50) + (firstMsg.length > 50 ? '...' : '')
-            }
+      if ((!title || title === 'New chat') && s.messages.length > 0) {
+        const summary = summaries.get(s.id)
+        if (summary) {
+          title = summary
+          // Update the session title in background
+          prisma.chatSession.update({ where: { id: s.id }, data: { title } }).catch(() => {})
+        } else if (!title || title === 'New chat') {
+          const firstUserMsg = s.messages.find((m) => m.role === 'user')
+          const firstMsg = firstUserMsg?.content || s.messages[0]?.content || null
+          if (firstMsg) {
+            title = firstMsg.replace(/\n/g, ' ').slice(0, 50) + (firstMsg.length > 50 ? '...' : '')
           }
         }
       }
@@ -233,7 +242,7 @@ INTENT (exactly one). Pick the single best fit. If more than one seems to apply,
 - mental_health: genuine emotional distress, mood concerns, or crisis/self-harm indicators. Acknowledge stress alongside academics, but classify as academics if the primary ask is about the subject/assignment (e.g. "I'm stressed about exams, how do I study?" is primarily academics; "I'm overwhelmed and don't see the point anymore" is mental_health). Also includes self-harm, burnout that blocks functioning, loneliness, etc.
 - academics: subject concepts, assignments, homework, study plans, exam prep, or problem-solving where they want material explained/solved, even if they mention stress about it. Example: "I'm so stressed about my exam I can't sleep — how do I revise?" is academics (primary ask is revision strategy). "explain photosynthesis" is academics.
 - career: placements, internships, jobs, resumes, interviews, skills, or career direction.
-- general: greetings, small talk, jokes, or open questions about the assistant; anything that is not the above.
+- general: greetings, small talk, jokes, or open questions about the assistant; anything that is not the above. When greeting, respond warmly and end with: "Anything you'd like to talk about — how you're feeling or your emotions, studying, or just a normal conversation?"
 
 RISK LEVEL (assess immediate safety only, independently of tone or negative emotion):
 - low: negative emotion, stress, or sadness alone.
@@ -450,7 +459,7 @@ STAGE-SPECIFIC BEHAVIOUR:
 1. general — reply warmly and naturally. Short, conversational, no retrieval.
 2. academics — act as an adaptive tutor giving a genuinely detailed, well-structured explanation. Identify the learning need (explain / solve / step-by-step / example / prerequisites / practice / study plan). Open with a short 3–5 line introduction to the topic that orients the student, then explain the mechanism or reasoning step by step, then give a concrete worked example, and finish with a short practice question or a pointer on what to do next. Answer the actual question that was asked.
 3. career — give a structured, personalized path: acknowledge their goal, name relevant skills/topics, then a practical sequence (learn → practice → projects → apply). Always include the next concrete step; a focusing follow-up question is optional.
-4. mental_health (any risk level, including high) — validate their feelings without overreacting, stay calm and non-judgmental, and ground concrete suggestions in the retrieved knowledge below whenever it is available. For high risk: motivate them — acknowledge how heavy it is, remind them they have survived hard days before, and leave them with one small doable step and a reason they can do it. Always answer the user's actual question — never reply with generic routing or "share more" prompts. Never diagnose, never claim to be a therapist, never invent medical facts, statistics, or sources.
+4. mental_health (any risk level, including high) — respond as a professional, empathetic therapist: validate their feelings without overreacting, stay calm and non-judgmental, and ground concrete suggestions in the retrieved knowledge below whenever it is available. Offer thoughtful, high-quality therapeutic guidance. Use active listening, empathy, and evidence-based techniques. Vary each reply; do not reuse the same grounding techniques or phrasing across responses. Never repeat the same grounding exercise (e.g., 4-2-6 breathing with 3-2-1 senses) in consecutive answers; choose a different technique each time. If the message involves exam or study stress, end by asking whether they would like help with exam preparation. For high risk: motivate them — acknowledge how heavy it is, remind them they have survived hard days before, and leave them with one small doable step and a reason they can do it. Always answer the user's actual question — never reply with generic routing or "share more" prompts. Never diagnose, never claim to be a therapist, never invent medical facts, statistics, or sources.
 
 ${!voice && intent === 'mental_health' ? `COUNSELOR DEPTH (chat only):
 - Keep responses warm, empathetic and human. Talk like a kind, grounded peer who actually listens.
@@ -486,8 +495,8 @@ ${isCoding ? `- This question is about CODE. You MUST include a working example 
 EVIDENCE (only when retrieved — may be empty):
 ${evidenceUsed && evidence.length
   ? intent === 'academics'
-    ? `This is material from the student's own course textbook. Ground your explanation in it: use its terminology and cover the specific points it lists — if it enumerates advantages, features, or steps, include those points rather than substituting generic knowledge. Explain in your own friendly words; do not paste it verbatim as a wall of text.\n${formatEvidence(evidence)}`
-    : `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence)}`
+    ? `This is material from the student's own course textbook. Ground your explanation in it: use its terminology and cover the specific points it lists — if it enumerates advantages, features, or steps, include those points rather than substituting generic knowledge. Explain in your own friendly words; do not paste it verbatim as a wall of text.\n${formatEvidence(evidence, voice ? 2 : 4, voice ? 500 : 900)}`
+    : `Use and paraphrase this retrieved knowledge. Do not invent beyond it.\n${formatEvidence(evidence, voice ? 2 : 4, voice ? 500 : 900)}`
   : intent === 'mental_health'
     ? 'No retrieved knowledge is available. Give gentle, general, safe guidance only. Where firm facts would normally come from sources (e.g. WHO self-help guidance, NHS Every Mind Matters, NIMH), name them as places to look rather than quoting specific claims.'
     : 'No reference material was retrieved. Answer from your own solid subject knowledge — be concrete and specific, with real examples, and never hedge just because no document was found.'}
@@ -501,6 +510,7 @@ OUTPUT FORMAT:
 FORMATTING RULES:
 - Each paragraph is 1–3 short, warm, human sentences.
 - Paragraph count: general = 0–1 body; academics/career = up to 3 body; mental_health = 2–3 short body grounded in EVIDENCE.
+- Always use the conversation history to stay on topic; do not jump to unrelated answers.
 - When ACADEMICS DEPTH applies (detailed tutor answer), this paragraph cap is lifted — write the full structured answer described there (definition, then a "- " key-points list, then an example, then optional code, then a closing line).
 - When COUNSELOR DEPTH applies (mental_health chat), keep to that structure: validate, understand, practical steps (2–3 bullets), encourage. You may still use "- " bullets for the practical steps.
 - The first paragraph must directly address the student; never repeat yourself in the last paragraph.
@@ -636,7 +646,57 @@ function enrichMentalHealth(text) {
 }
 
 /** Cheap pre-check so we only speculate enrichment on likely well-being turns. */
-const WELLBEING_HINTS = /(stress|anxious|anxiety|panic|sad|depress|hopeless|overwhelm|burn(?:t|ed)? ?out|exhaust|lonely|alone|sleep|insomnia|tired|mood|feel|feeling|emotion|motivat|cry|worried|worry|nervous|afraid|scared|cannot cope|can't cope|cant cope|give up|no reason|hate myself|worthless|failure|self.?harm|suicid|want to die|kill myself)/i
+const WELLBEING_HINTS = /(stress|anxious|anxiety|panic|sad|depress|hopeless|overwhelm|burn(?:t|ed)? ?out|exhaust|lonely|alone|sleep|insomnia|tired|mood|feel|feeling|emotion|motivat|cry|worried|worry|nervous|afraid|scared|happy|excited|joy|glad|content|cannot cope|can't cope|cant cope|give up|no reason|hate myself|worthless|failure|self.?harm|suicid|want to die|kill myself)/i
+
+/**
+ * Instant intent signals for voice turns.
+ *
+ * The LLM classifier costs 0.6–0.9s, which is most of the budget between the
+ * student finishing a sentence and hearing the first word back. Voice replies
+ * are short and style-only, so a keyword pre-check is good enough to choose
+ * the prompt; text chat still uses the full classifier. Explicit safety
+ * language is still caught deterministically by hardRiskCheck().
+ */
+const ACADEMIC_HINTS = /\b(explain|explanation|define|definition|meaning of|difference between|concept|theory|homework|assignment|exam|test|quiz|study|studying|revise|revision|subject|topic|chapter|theorem|formula|equation|solve|calculate|derivative|integral|photosynthesis|mitosis|algorithm|algorithms|data structure|binary search|linked list|programming|code|coding|python|java|javascript|typescript|sql|database|network|operating system|compiler|math|maths|mathematics|physics|chemistry|biology|history|economics|geography|literature|grammar|essay|diagram|syllabus|semester|numerical|proof|practical|viva|mcq|question paper|previous year|lab|experiment|notes)\b/i
+
+const CAREER_HINTS = /\b(placement|placements|internship|intern|job|jobs|resume|cv|interview|interviews|career|salary|hiring|hire|recruiter|recruitment|apply|application|company|linkedin|portfolio|aptitude|offer letter)\b/i
+
+/** Distress strong enough to hold even when the message names a subject. */
+const DISTRESS_HINTS = /\b(suicid\w*|self[-\s]?harm\w*|kill myself|want to die|end my life|hopeless|worthless|no reason to (?:live|go on)|can'?t go on|cannot go on|can'?t cope|cannot cope|panic attack|depress\w*|anxiety attack|burn(?:t|ed)?[-\s]?out|breakdown|hate myself|don'?t see the point|no point (?:in|to) (?:anything|life)|better off dead|want to disappear)\b/i
+
+function fastAnalysis(text) {
+  const hardRisk = hardRiskCheck(text)
+  // Critical language always goes down the safety path, even if the student
+  // framed it around an exam or a job.
+  if (hardRisk === 'critical') {
+    return {
+      intent: 'mental_health',
+      riskLevel: 'critical',
+      reason: 'explicit safety language detected in the message',
+    }
+  }
+
+  const distress = DISTRESS_HINTS.test(text)
+  let intent = 'general'
+  if (distress) intent = 'mental_health'
+  else if (WELLBEING_HINTS.test(text)) intent = 'mental_health'
+  else if (ACADEMIC_HINTS.test(text)) intent = 'academics'
+  else if (CAREER_HINTS.test(text)) intent = 'career'
+  // A "high" phrase such as "give up" on an otherwise academic question still
+  // keeps the safety flag, but should not turn a maths question into a
+  // counselling reply.
+  else if (hardRisk) intent = 'mental_health'
+
+  return {
+    intent,
+    riskLevel: hardRisk || (distress ? 'moderate' : 'low'),
+    reason: hardRisk
+      ? 'safety language detected in the message'
+      : distress
+        ? 'distress language detected'
+        : '',
+  }
+}
 
 const ENRICHMENT_TIMEOUT = Symbol('enrichment-timed-out')
 
@@ -674,10 +734,15 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
 
   if (settled.ok) {
     intent = settled.value.intent
+    if (!hardRisk && WELLBEING_HINTS.test(text)) {
+      intent = 'mental_health'
+    }
     if (!hardRisk) {
       riskLevel = settled.value.riskLevel
       riskReason = settled.value.reason
     }
+  } else if (WELLBEING_HINTS.test(text)) {
+    intent = 'mental_health'
   }
   /* analysis unavailable — keep hardRisk or low */
 
@@ -701,7 +766,7 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
     // it — the prompt already covers the no-evidence case. Text turns can
     // afford to wait and stay fully grounded.
     const enriched = voice
-      ? await Promise.race([pending, waitFor(1500)])
+      ? await Promise.race([pending, waitFor(600)])
       : await pending
 
     if (enriched !== ENRICHMENT_TIMEOUT && enriched.retrievalResult.status === 'fulfilled') {
@@ -710,10 +775,15 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
     }
   } else if (intent === 'academics' || intent === 'career') {
     // Academic and career answers are grounded in the ingested textbooks/guides.
+    // Same live-call budget as well-being: a cold index or a slow embedding
+    // request must not hold the first spoken word hostage.
     try {
-      const retrieval = await resolveEvidence({ intent, message: text })
-      evidence = retrieval.results
-      evidenceUsed = retrieval.used
+      const pending = resolveEvidence({ intent, message: text }).catch(() => null)
+      const retrieval = voice ? await Promise.race([pending, waitFor(600)]) : await pending
+      if (retrieval && retrieval !== ENRICHMENT_TIMEOUT) {
+        evidence = retrieval.results
+        evidenceUsed = retrieval.used
+      }
     } catch {
       evidence = []
       evidenceUsed = false
@@ -790,6 +860,7 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
       }
     } catch (err) {
       if (err?.name === 'AbortError' || signal?.aborted) throw err
+      console.warn('[assistant] generation failed, retrying once:', err?.message?.slice(0, 220))
       try {
         const retried = (await generateReply(baseContext, { signal })) || fallback
         reply = retried
@@ -797,7 +868,8 @@ async function runPipeline(text, history = [], userContext = null, { onDelta, on
         // reply (not a truncated prefix) is what they end up with.
         if (streamedAnything) onRevision?.(retried)
         else onDelta?.(retried)
-      } catch {
+      } catch (retryErr) {
+        console.warn('[assistant] generation retry failed, using fallback:', retryErr?.message?.slice(0, 220))
         reply = fallback
         if (!streamedAnything) onDelta?.(fallback)
       }
@@ -823,11 +895,16 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
   const userId = userIdOf(req)
 
   // The analysis call is network-bound and depends on nothing, so start it
-  // before the database work instead of waiting behind it.
-  const analysis = analyzeMessage(text, { signal }).then(
-    (value) => ({ ok: true, value }),
-    () => ({ ok: false }),
-  )
+  // before the database work instead of waiting behind it. Voice turns use the
+  // instant keyword classifier instead: an extra LLM round-trip before the
+  // reply is a large slice of the "why is it still thinking?" delay, and voice
+  // answers are short enough that prompt selection does not need a model call.
+  const analysis = voice
+    ? Promise.resolve({ ok: true, value: fastAnalysis(text) })
+    : analyzeMessage(text, { signal }).then(
+        (value) => ({ ok: true, value }),
+        () => ({ ok: false }),
+      )
 
   const session = await ensureSession(req, sessionId)
 
@@ -853,14 +930,14 @@ async function handleMessage({ req, text, sessionId, onDelta, onMeta, onRevision
   // Long past replies are truncated (an earlier 500-word tutor answer is mostly
   // stale context) and the total character budget is capped, which is the single
   // biggest lever on prompt tokens.
-  const HISTORY_TURNS = voice ? 6 : 10
-  const HISTORY_CHARS = voice ? 1800 : 4000
+  const HISTORY_TURNS = voice ? 4 : 10
+  const HISTORY_CHARS = voice ? 900 : 4000
   const trimmed = []
   let usedChars = 0
   for (const m of historyRows) {
     if (trimmed.length >= HISTORY_TURNS) break
     let content = m.content
-    const perMessage = voice ? 300 : 700
+    const perMessage = voice ? 220 : 700
     if (content.length > perMessage) content = `${content.slice(0, perMessage)}…`
     if (usedChars + content.length > HISTORY_CHARS) break
     usedChars += content.length

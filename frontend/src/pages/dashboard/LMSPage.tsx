@@ -192,9 +192,8 @@ export function LMSPage() {
   }
 
   return (
-    <div className="rise-grid mx-auto max-w-6xl space-y-6">
+    <div className="rise-grid mx-auto max-w-[1560px] space-y-6">
       <PageHeader
-        eyebrow="LMS Portal"
         title={isStaff ? 'Faculty Dashboard' : 'Learning Dashboard'}
         description={
           isStaff

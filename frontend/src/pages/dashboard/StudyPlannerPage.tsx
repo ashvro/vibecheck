@@ -254,9 +254,8 @@ export function StudyPlannerPage() {
     : []
 
   return (
-    <div className="rise-grid mx-auto max-w-6xl space-y-6">
+    <div className="rise-grid mx-auto max-w-[1560px] space-y-6">
       <PageHeader
-        eyebrow="AI generated"
         title="Study Planner"
         description="Drop in your module photos or PDFs — get a day-by-day plan with hours, topics and exam questions up to your exam date."
         aside={

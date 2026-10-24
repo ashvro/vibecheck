@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Fragment } from 'react'
 import { Outlet, useLocation, NavLink } from 'react-router-dom'
-import { Menu, X, LayoutDashboard, Bot, Users, UsersRound, Heart, BookOpen, BarChart3, CalendarRange } from 'lucide-react'
-import clsx from 'clsx'
+import { Menu, X, BotMessageSquare, MessageCircleMore, Waves, Radar, Orbit, GraduationCap, Route, Activity } from 'lucide-react'
 import { getUser } from '../../lib/api'
 
 export function DashboardLayout() {
@@ -9,6 +8,9 @@ export function DashboardLayout() {
   const { pathname } = useLocation()
   const user = getUser()
   const initial = (user?.name ? String(user.name).charAt(0).toUpperCase() : 'U')
+
+  /** Rendered on the avatar only when there is something unread. */
+  const unreadNotifications = 0
 
   const auraRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -20,37 +22,43 @@ export function DashboardLayout() {
     return () => window.removeEventListener('pointermove', handleMove)
   }, [])
 
-  const navItems = [
-    { to: '/app', label: 'Overview', Icon: LayoutDashboard },
-    { to: '/app/ai', label: 'AI Assistant', Icon: Bot },
-    { to: '/app/community', label: 'Community', Icon: Users },
-    { to: '/app/clubs', label: 'Clubs', Icon: UsersRound },
-    { to: '/app/relaxation', label: 'Relaxation', Icon: Heart },
-    { to: '/app/lms', label: 'LMS Portal', Icon: BookOpen },
-    { to: '/app/analytics', label: 'Analytics', Icon: BarChart3 },
-    { to: '/app/study-planner', label: 'Planner', Icon: CalendarRange },
+  const navGroups = [
+    [
+      { to: '/app/ai', label: 'AI Assistant', Icon: BotMessageSquare },
+      { to: '/app/relaxation', label: 'Relaxation', Icon: Waves },
+    ],
+    [
+      { to: '/app/community', label: 'Community', Icon: Orbit },
+      { to: '/app/clubs', label: 'Clubs', Icon: MessageCircleMore },
+    ],
+    [
+      { to: '/app', label: 'Overview', Icon: Radar },
+    ],
+    [
+      { to: '/app/lms', label: 'LMS Portal', Icon: GraduationCap },
+      { to: '/app/study-planner', label: 'Planner', Icon: Route },
+    ],
+    [
+      { to: '/app/analytics', label: 'Analytics', Icon: Activity },
+    ],
   ]
 
+  /** Flat list for the mobile drawer, same order as the dock. */
+  const navItems = navGroups.flat()
   return (
-    <div
-      className="relative min-h-screen text-ink"
-      style={{
-        background: '#0B0918',
-        fontFamily: 'Poppins, ui-sans-serif, system-ui, sans-serif',
-      }}
-    >
-      {/* Space background image */}
-      <div
-        className="fixed inset-0 z-0"
-        style={{
-          backgroundImage: 'url(/vibecheck_space_background.png)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-        }}
-        aria-hidden
+    <div className="app-shell grain relative min-h-screen bg-thaw text-ink">
+      <img
+        src="/hero-bg.jpg"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 h-full w-full object-cover z-0"
+        style={{ opacity: 0.7 }}
       />
-
+      <div className="aurora" aria-hidden>
+        <span className="aurora-orb orb-a" />
+        <span className="aurora-orb orb-b" />
+        <span className="aurora-orb orb-c" />
+      </div>
       <div ref={auraRef} className="aura-follow" aria-hidden />
 
       {/* Mobile hamburger */}
@@ -105,107 +113,61 @@ export function DashboardLayout() {
         </nav>
       </div>
 
-      {/* Content area with glow frame */}
-      <div className="relative z-10 flex justify-center px-4 pt-[60px] pb-[222px]">
-        <div
-          className="relative w-full"
-          style={{
-            maxWidth: 1300,
-            borderRadius: 44,
-            padding: '1.6px',
-            background: 'linear-gradient(135deg, rgba(120,80,220,.6) 0%, rgba(180,70,200,.5) 100%)',
-            boxShadow: '0 0 30px rgba(100,60,200,.15)',
-          }}
-        >
+      {/* Main content with content-frame border effect */}
+      <div className="relative z-10 mx-auto w-full max-w-[1680px] px-6 pt-6">
+        <div className="content-frame" style={{ height: 'calc(100vh - 156px)' }}>
+          <span className="content-frame-aurora" aria-hidden />
           <div
-            style={{
-              borderRadius: 42,
-              background: 'rgba(18,14,35,.8)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              padding: '24px',
-              minHeight: 'calc(100vh - 282px)',
-              overflow: 'hidden',
-            }}
+            className="content-frame-inner relative px-6 pt-[26px] pb-6"
+            style={{ height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
           >
-            {/* Bottom fade mask */}
             <div
-              style={{
-                maskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
-                WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)',
-              }}
+              style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
             >
-              <div style={{ maxWidth: 1210, margin: '0 auto', paddingBottom: 150 }}>
-                <div key={pathname} className="page-enter">
-                  <Outlet />
-                </div>
+              <div key={pathname} className="page-enter h-full">
+                <Outlet />
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom nav */}
-      <nav
-        className="fixed bottom-[58px] left-1/2 z-40 hidden -translate-x-1/2 items-center gap-1 rounded-[46px] border px-4 lg:flex"
-        style={{
-          width: 1320,
-          height: 92,
-          background: 'rgba(24,20,52,.93)',
-          borderColor: 'rgba(118,104,205,.6)',
-          borderWidth: 2,
-          boxShadow: '0 20px 60px rgba(0,0,0,.5)',
-        }}
-        aria-label="Main"
-      >
-        {navItems.map((item) => (
+      {/* Floating dock — primary navigation */}
+      <div className="dock-wrap">
+        <nav aria-label="Primary" className="dock">
+          <span className="dock-floor-glow" aria-hidden />
+          {navGroups.map((group, groupIndex) => (
+            <Fragment key={groupIndex}>
+              {groupIndex > 0 && <span className="dock-divider" aria-hidden />}
+              {group.map(({ to, label, Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/app'}
+                  className="dock-item"
+                >
+                  <span className="dock-icon">
+                    <Icon strokeWidth={1.7} />
+                  </span>
+                  <span className="dock-label">{label}</span>
+                  <span className="dock-dot" aria-hidden />
+                </NavLink>
+              ))}
+            </Fragment>
+          ))}
           <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/app'}
-            className={({ isActive }) =>
-              clsx(
-                'relative flex flex-1 flex-col items-center justify-center gap-1 text-[13px] transition',
-                isActive ? 'text-white' : 'text-[#968EB9] hover:text-white',
-              )
-            }
+            to="/app/profile"
+            className="dock-item dock-profile"
           >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <div
-                    className="absolute flex items-center justify-center rounded-full"
-                    style={{
-                      width: 84,
-                      height: 84,
-                      top: -40,
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      background: '#AC52EE',
-                      border: '2px solid rgba(255,255,255,.3)',
-                      boxShadow: '0 12px 32px rgba(168,85,247,.30)',
-                    }}
-                  >
-                    <item.Icon className="h-6 w-6 text-white" />
-                  </div>
-                )}
-                {!isActive && <item.Icon className="h-5 w-5" />}
-                <span className={clsx(isActive && 'mt-8')}>{item.label}</span>
-              </>
-            )}
+            <span className="dock-icon">
+              <span className="dock-avatar-letter">{initial}</span>
+              {unreadNotifications > 0 && <span className="dock-avatar-dot" aria-hidden />}
+            </span>
+            <span className="dock-label">Profile</span>
+            <span className="dock-dot" aria-hidden />
           </NavLink>
-        ))}
-        <NavLink
-          to="/app/profile"
-          className="ml-2 flex h-[62px] w-[62px] shrink-0 items-center justify-center rounded-full border-2 text-white transition hover:scale-105"
-          style={{
-            borderColor: 'rgba(184,164,224,.5)',
-            background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
-          }}
-        >
-          <span className="text-lg font-bold">{initial}</span>
-        </NavLink>
-      </nav>
+        </nav>
+      </div>
     </div>
   )
 }

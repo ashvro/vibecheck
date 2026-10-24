@@ -4,6 +4,7 @@ export type TtsProvider = string | null
 
 let providerCache: TtsProvider | undefined
 let ttsStatusCache: { provider: TtsProvider; model?: string; defaultVoiceId?: string } | null = null
+let voicesCache: Array<{ id: string; name: string; preview_url?: string | null }> | null = null
 
 export async function getTtsStatus(): Promise<{ provider: TtsProvider; model?: string; defaultVoiceId?: string }> {
   if (ttsStatusCache) return ttsStatusCache
@@ -13,7 +14,11 @@ export async function getTtsStatus(): Promise<{ provider: TtsProvider; model?: s
     const data = (await res.json()) as { provider?: string | null; model?: string; defaultVoiceId?: string }
     ttsStatusCache = { provider: data.provider ?? null, model: data.model, defaultVoiceId: data.defaultVoiceId }
   } catch {
-    ttsStatusCache = { provider: null }
+    // Deliberately NOT cached: a page that loads before the backend (or a
+    // transient network blip) used to lock in "no provider" for the rest of
+    // the session, which silently hid the voice picker even though voices
+    // were available. Failures are retried on the next mount instead.
+    return { provider: null }
   }
   return ttsStatusCache
 }
@@ -71,11 +76,19 @@ export function setSelectedVoiceId(id: string | null) {
 }
 
 export async function listTtsVoices(): Promise<Array<{ id: string; name: string; preview_url?: string | null }>> {
+  // The voice list does not change while the app is open, so it is fetched
+  // once — the assistant tab remounts on every tab switch and used to refetch
+  // this list each time. Only a non-empty list is cached: an empty response
+  // (backend still booting, transient failure) must be retried rather than
+  // hiding the voice picker for the rest of the session.
+  if (voicesCache) return voicesCache
   try {
     const res = await fetch('/api/assistant/voices')
     if (!res.ok) return []
     const data = await res.json()
-    return Array.isArray(data.voices) ? data.voices : []
+    const list = Array.isArray(data.voices) ? data.voices : []
+    if (list.length) voicesCache = list
+    return list
   } catch {
     return []
   }
@@ -223,9 +236,21 @@ class NeuralSpeaker implements Speaker {
   private analyser: AnalyserNode | null = null
   private probeRaf = 0
   private onLevel: ((level: number) => void) | undefined
+  /** Per-call voice override, used by the Relaxation tab's own picker. */
+  private voiceId: string | null | undefined
+  /** After one synthesis failure, stop retrying for this turn: the browser
+   *  voice can start immediately instead of paying a failed request per chunk. */
+  private failed = false
+  private fallback: Speaker | null = null
 
-  constructor(onLevel?: (level: number) => void) {
+  constructor(onLevel?: (level: number) => void, voiceId?: string | null) {
     this.onLevel = onLevel
+    this.voiceId = voiceId
+  }
+
+  private browserFallback(): Speaker {
+    this.fallback ??= browserSpeaker(this.onLevel)
+    return this.fallback
   }
 
   get active(): boolean {
@@ -263,9 +288,10 @@ class NeuralSpeaker implements Speaker {
   async prepare(text: string, signal?: AbortSignal): Promise<Prepared> {
     const token = this.generation
     if (!text.trim()) return { text, buffer: null, token }
+    if (this.failed) return { text, buffer: null, token }
     try {
       const auth = getToken()
-      const voiceId = getSelectedVoiceId()
+      const voiceId = this.voiceId ?? getSelectedVoiceId()
       const body: { text: string; voiceId?: string } = { text }
       if (voiceId) body.voiceId = voiceId
       const res = await fetch('/api/assistant/tts', {
@@ -288,7 +314,8 @@ class NeuralSpeaker implements Speaker {
     } catch (err) {
       // An interrupted prefetch is expected, not a failure worth logging.
       if (token === this.generation && (err as Error)?.name !== 'AbortError' && err instanceof Error) {
-        console.warn('[tts] neural synthesis failed, using browser voice', err)
+        this.failed = true
+        console.warn('[tts] neural synthesis failed, using browser voice for this turn', err)
       }
       return { text, buffer: null, token }
     }
@@ -297,9 +324,16 @@ class NeuralSpeaker implements Speaker {
   async play(prepared: Prepared): Promise<void> {
     if (prepared.token !== this.generation) return
     if (!prepared.buffer) {
-      // Neural synthesis failed for this chunk — speak it with the browser voice
-      // (with a fresh token so this playback is not dropped as stale).
-      await browserSpeaker(this.onLevel).play({ text: prepared.text, buffer: null, token: 0 })
+      // Neural synthesis failed for this turn — speak it with the browser voice
+      // (with a fresh token so this playback is not dropped as stale). Keep the
+      // speaker counted as active so the orb/UI still knows we are talking, and
+      // reuse one fallback instance so an interruption can cancel it.
+      this.speakingCount += 1
+      try {
+        await this.browserFallback().play({ text: prepared.text, buffer: null, token: 0 })
+      } finally {
+        this.speakingCount = Math.max(0, this.speakingCount - 1)
+      }
       return
     }
 
@@ -330,6 +364,11 @@ class NeuralSpeaker implements Speaker {
   cancel() {
     this.generation += 1
     this.stopProbe()
+    // The browser voice is a separate engine: stop it too when the user
+    // interrupts during a fallback chunk. Drop the instance afterwards because
+    // cancel() advances its token, and the next fallback chunk reuses token 0.
+    this.fallback?.cancel()
+    this.fallback = null
     for (const [source, settle] of this.sources) {
       source.onended = null
       try {
@@ -358,13 +397,19 @@ const MAX_CHUNK_CHARS = 96
  * Length of the next speakable chunk in `pending`, or 0 if nothing is ready.
  * A finished sentence always wins; otherwise we start talking at the first
  * clause boundary once enough text has arrived, so playback begins while the
- * model is still writing the rest of the sentence.
+ * model is still writing the rest of the sentence. `eagerFirst` lets the very
+ * first chunk break at a word boundary instead of waiting for punctuation —
+ * the opening words are what the student is waiting to hear.
  */
-function nextChunkEnd(pending: string): number {
+function nextChunkEnd(pending: string, eagerFirst = false): number {
   for (let i = 0; i < pending.length - 1; i += 1) {
     if (SENTENCE_END.test(pending.slice(i, i + 2))) return i + 2
   }
   if (pending.length < MIN_CHUNK_CHARS) return 0
+  if (eagerFirst) {
+    const cut = pending.indexOf(' ', MIN_CHUNK_CHARS)
+    if (cut > MIN_CHUNK_CHARS) return cut + 1
+  }
 
   for (let i = MIN_CHUNK_CHARS - 1; i < pending.length - 1; i += 1) {
     if (CLAUSE_BREAK.test(pending[i]) && /\s/.test(pending[i + 1])) return i + 1
@@ -397,14 +442,17 @@ export class SpeechStream {
   private drainAbort: AbortController | null = null
   private playStarted = false
   private onSpeaking: (() => void) | undefined
+  private voiceId: string | null | undefined
 
   /**
    * @param onLevel Live playback loudness 0..1, for the voice orb.
    * @param onSpeaking Fires once when playback actually begins (the first chunk
    *   can be synthesised ahead of time, so `push` alone is not a reliable cue).
+   * @param voiceId Optional per-stream voice override (Relaxation picker).
    */
-  constructor(onLevel?: (level: number) => void, onSpeaking?: () => void) {
+  constructor(onLevel?: (level: number) => void, onSpeaking?: () => void, voiceId?: string | null) {
     this.onSpeaking = onSpeaking
+    this.voiceId = voiceId
     this.speaker = browserSpeaker(onLevel)
     this.ready = this.initSpeaker(onLevel)
   }
@@ -412,7 +460,7 @@ export class SpeechStream {
   private async initSpeaker(onLevel?: (level: number) => void): Promise<void> {
     const provider = await getTtsProvider()
     if (provider) {
-      this.neural = new NeuralSpeaker(onLevel)
+      this.neural = new NeuralSpeaker(onLevel, this.voiceId)
       this.speaker = this.neural
     }
   }
@@ -435,7 +483,10 @@ export class SpeechStream {
     const pending = fullText.slice(this.cursor)
     let offset = 0
     for (;;) {
-      const end = nextChunkEnd(pending.slice(offset))
+      // Before anything has been spoken, cut the opening words at the first
+      // word boundary instead of waiting for a clause or sentence.
+      const eagerFirst = this.cursor === 0 && offset === 0 && !this.playStarted && this.queue.length === 0
+      const end = nextChunkEnd(pending.slice(offset), eagerFirst)
       if (end <= 0) break
       const chunk = pending.slice(offset, offset + end).trim()
       offset += end

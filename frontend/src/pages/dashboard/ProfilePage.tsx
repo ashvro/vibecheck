@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import {
   AtSign,
@@ -6,6 +7,7 @@ import {
   CalendarDays,
   GraduationCap,
   Lock,
+  LogOut,
   MoonStar,
   Pencil,
   ShieldCheck,
@@ -14,8 +16,7 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { CrystalMark } from '../../components/CrystalMark'
-import { PageHeader } from '../../components/PageHeader'
-import { api, getUser } from '../../lib/api'
+import { api, clearAuth, getUser } from '../../lib/api'
 
 type ProfileStats = {
   enrollments: number
@@ -94,6 +95,7 @@ function Toggle({
 }
 
 export function ProfilePage() {
+  const navigate = useNavigate()
   const [notifications, setNotifications] = useState(true)
   const [nightMode, setNightMode] = useState(true)
   const [stats, setStats] = useState<ProfileStats | null>(null)
@@ -294,23 +296,7 @@ export function ProfilePage() {
         aria-hidden
       />
 
-      <div className="rise-grid relative z-10 mx-auto max-w-5xl space-y-8">
-        <PageHeader
-          eyebrow="Profile"
-          title="Your space, your signal"
-          description={
-            isStaff
-              ? 'Your teaching profile, courses and portal preferences in one place.'
-              : 'Personal details, well-being preferences and club memberships in one place.'
-          }
-          aside={
-            <span className="inline-flex items-center gap-2 rounded-full border border-ice/12 bg-surface-2/60 px-3 py-1.5 font-mono text-[10px] tracking-[0.16em] text-ice/70 uppercase">
-              <Sparkles className="h-3.5 w-3.5 text-ice/50" />
-              {roleLabel} · verified
-            </span>
-          }
-        />
-
+      <div className="rise-grid relative z-10 mx-auto max-w-[1240px] space-y-8">
         <section className="glass-ice group relative overflow-hidden rounded-xl p-6">
           <div className="chat-shine pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" aria-hidden />
           <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-center">
@@ -389,6 +375,16 @@ export function ProfilePage() {
                   <CalendarDays className="h-3 w-3" /> Joined {new Date(createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  clearAuth()
+                  navigate('/')
+                }}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-rose-400/40 bg-rose-400/10 px-3 py-1 font-mono text-[9px] tracking-[0.16em] text-rose-300 uppercase transition hover:border-rose-400 hover:bg-rose-400/20"
+              >
+                <LogOut className="h-3 w-3" /> Sign out
+              </button>
             </div>
           </div>
         </section>

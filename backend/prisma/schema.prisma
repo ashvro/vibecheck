@@ -26,6 +26,7 @@ model User {
   checkIns     CheckIn[]
   chatMessages ChatMessage[]
   chatSessions ChatSession[]
+  relaxationSessions RelaxationSession[]
   posts        Post[]         @relation("PostAuthor")
   comments     Comment[]
   ownedPosts   Post[]         @relation("PostOwner")
@@ -131,6 +132,18 @@ model ChatSession {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   messages       ChatMessage[]
+}
+
+model RelaxationSession {
+  id          Int      @id @default(autoincrement())
+  userId      Int?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  voiceId     String?
+  creditsUsed Int      @default(0)
+  durationSec Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model KnowledgeChunk {

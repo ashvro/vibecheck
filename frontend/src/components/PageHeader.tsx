@@ -25,7 +25,6 @@ export function PageHeader({ eyebrow, title, description, aside }: PageHeaderPro
       )}
 
       <div className="relative flex flex-wrap items-center gap-3">
-        {!eyebrow && <CrystalMark spinOnView className="mt-1" />}
         <h1 className="bg-gradient-to-r from-frost via-ice-bright to-ice bg-clip-text font-display text-2xl font-bold tracking-tight text-transparent drop-shadow-[0_0_24px_rgba(139,92,246,0.25)]">
           {title}
         </h1>

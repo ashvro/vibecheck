@@ -115,7 +115,6 @@ export function CommunityPage() {
   const [composer, setComposer] = useState({ title: '', body: '' })
   const [composerCategory, setComposerCategory] = useState<string>('')
   const [posts, setPosts] = useState<Post[]>([])
-  const [stats, setStats] = useState<{ members: number; posts: number; replies: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expandedComments, setExpandedComments] = useState<Record<number, boolean>>({})
@@ -154,10 +153,6 @@ export function CommunityPage() {
       .then(setPosts)
       .catch(() => setPosts([]))
       .finally(() => setLoading(false))
-    api
-      .get<{ members: number; posts: number; replies: number }>('/api/community/stats')
-      .then(setStats)
-      .catch(() => setStats(null))
   }, [])
 
   useEffect(() => {
@@ -206,8 +201,6 @@ export function CommunityPage() {
     }
     return result
   }, [category, posts, sort])
-
-  const totalComments = posts.reduce((sum, p) => sum + (p.comments || 0), 0)
 
   async function toggleVote(id: number) {
     const prev = posts.find((p) => p.id === id)
@@ -310,13 +303,13 @@ export function CommunityPage() {
 
   return (
     <div className="min-h-screen" style={{ background: 'transparent', fontFamily: 'inherit' }}>
-      <div className="mx-auto grid max-w-[1360px] gap-6 px-4 pt-4 lg:grid-cols-[1fr_300px]">
+      <div className="mx-auto grid max-w-[1560px] gap-6 px-4 pt-4 lg:grid-cols-[1fr_300px]">
         <div className="flex flex-col gap-6">
-          <header className="flex flex-col gap-1">
+          <header className="flex flex-wrap items-start justify-between gap-2">
             <h1 className="text-[26px] font-bold" style={{ color: '#ece8f8' }}>
               Community
             </h1>
-            <p className="text-sm" style={{ color: '#a79fc4' }}>
+            <p className="text-sm text-right" style={{ color: '#a79fc4' }}>
               Campus conversations, optional anonymity
             </p>
           </header>
@@ -616,57 +609,6 @@ export function CommunityPage() {
         </div>
 
         <aside className="hidden flex-col gap-4 lg:sticky lg:top-4 lg:flex">
-          <div
-            className="flex flex-col gap-4 rounded-[14px] border p-4 backdrop-blur-xl"
-            style={{ background: 'rgba(26,21,36,0.55)', borderColor: 'rgba(184,164,224,0.18)' }}
-          >
-            <div className="flex items-center justify-between">
-              <span
-                className="text-[11px] uppercase tracking-[0.12em]"
-                style={{ color: '#a79fc4', fontFamily: 'JetBrains Mono, monospace' }}
-              >
-                About community
-              </span>
-            </div>
-            <p className="text-sm" style={{ color: '#cfc8e6' }}>
-              A space for students to connect, share knowledge, and support each other.
-            </p>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div>
-                <div className="text-lg font-semibold" style={{ color: '#ece8f8' }}>
-                  {stats?.members ?? '—'}
-                </div>
-                <div className="text-xs" style={{ color: '#a79fc4' }}>
-                  Members
-                </div>
-              </div>
-              <div>
-                <div className="text-lg font-semibold" style={{ color: '#ece8f8' }}>
-                  {stats?.posts ?? posts.length}
-                </div>
-                <div className="text-xs" style={{ color: '#a79fc4' }}>
-                  Posts
-                </div>
-              </div>
-              <div>
-                <div className="text-lg font-semibold" style={{ color: '#ece8f8' }}>
-                  {stats?.replies ?? totalComments}
-                </div>
-                <div className="text-xs" style={{ color: '#a79fc4' }}>
-                  Replies
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="flex h-11 w-full items-center justify-center rounded-[22px] text-sm font-medium"
-              style={{ background: '#b9a2f5', color: '#1a1030' }}
-            >
-              Create post
-            </button>
-          </div>
-
           <div
             className="flex flex-col gap-3 rounded-[14px] border p-4 backdrop-blur-xl"
             style={{ background: 'rgba(26,21,36,0.55)', borderColor: 'rgba(184,164,224,0.18)' }}

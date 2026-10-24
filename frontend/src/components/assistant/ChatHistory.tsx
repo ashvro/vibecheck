@@ -21,10 +21,9 @@ type Props = {
 }
 
 /**
- * Chat history for the AI Assistant tab, sitting under the mode pills exactly
- * where the old rail used to be — a "New chat" row and a Recent list. It is the
- * same shape as the previous UI, just tilted into the header column instead of a
- * full-height rail, so the app sidebar stays the only rail on screen.
+ * Chat history for the AI Assistant tab — a "New chat" row, a search toggle and
+ * a Recent list. It is rendered inside its own glass card (the "Conversations"
+ * panel) so the chat transcript can sit in a sibling card with its own scroll.
  */
 export function ChatHistory({
   sessions,
@@ -49,7 +48,7 @@ export function ChatHistory({
   const filtered = query ? sessions.filter((s) => s.title.toLowerCase().includes(query)) : sessions
 
   return (
-    <div className={clsx('mt-3', className)}>
+    <div className={clsx('flex flex-col', className)}>
       <button
         type="button"
         onClick={onNewChat}
@@ -84,7 +83,7 @@ export function ChatHistory({
         </button>
       )}
 
-      <div className="vc-scroll mt-2 max-h-[260px] overflow-y-auto pb-1">
+      <div className="vc-scroll mt-2 min-h-0 flex-1 overflow-y-auto pb-1">
         <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-wide text-vc-ink-2">Recent</p>
         {!loading && filtered.length === 0 && (
           <p className="px-2 py-3 text-[12px] leading-relaxed text-vc-ink-3">
@@ -97,7 +96,7 @@ export function ChatHistory({
             className={clsx(
               'group/x flex h-10 items-center rounded-lg border transition',
               s.id === activeId
-                ? 'vc-glass-plum border-vc-line-strong text-vc-ink'
+                ? 'border-vc-accent bg-vc-chip-active text-vc-ink'
                 : 'border-transparent text-vc-rail-text hover:bg-vc-row/60 hover:text-vc-ink',
             )}
           >

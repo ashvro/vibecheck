@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Mic, X } from 'lucide-react'
+import { ChevronDown, Mic, Volume2, X } from 'lucide-react'
 import { ModePills } from './ModePills'
 import VoiceOrb from '../VoiceOrb'
 import type { VoicePhase } from '../../lib/voice'
@@ -10,6 +10,10 @@ type Props = {
   activeMode: string
   onExit: () => void
   onMicToggle: () => void
+  /** Voices the agent can speak with; hidden when the deployment has none. */
+  voiceChoices?: Array<{ id: string; name: string }>
+  voiceId?: string | null
+  onVoiceChange?: (id: string) => void
 }
 
 /** Copy + accent for each phase of the voice loop. */
@@ -71,13 +75,25 @@ function VoiceStatus({ phase }: { phase: VoicePhase }) {
  * y=385 (halfway between the header and the bottom controls), and the controls
  * are a 63.5px mic pill plus a close glyph.
  */
-export function VoiceOverlay({ open, phase, activeMode, onExit, onMicToggle }: Props) {
+export function VoiceOverlay({
+  open,
+  phase,
+  activeMode,
+  onExit,
+  onMicToggle,
+  voiceChoices = [],
+  voiceId,
+  onVoiceChange,
+}: Props) {
   return (
     <div
       className={clsx(
-        'absolute inset-0 z-50 flex flex-col overflow-hidden rounded-2xl bg-vc-voice-bg transition-opacity duration-300',
+        'fixed inset-0 z-50 flex flex-col overflow-hidden transition-opacity duration-300',
         open ? 'opacity-100' : 'pointer-events-none opacity-0',
       )}
+      style={{
+        background: 'rgba(12,9,24,.97)',
+      }}
       aria-hidden={!open}
     >
       {/* Soft violet pool behind the orb — deepens the top and leaves the
@@ -112,6 +128,32 @@ export function VoiceOverlay({ open, phase, activeMode, onExit, onMicToggle }: P
         {/* What the agent is doing right now, so a short pause never reads as
             the app being stuck. */}
         <VoiceStatus phase={phase} />
+
+        {/* The composer lives behind the overlay, so the multi-voice picker is
+            repeated here: otherwise the only way to change the agent's voice
+            is to leave voice mode first. */}
+        {voiceChoices.length > 0 && onVoiceChange && (
+          <label
+            title="Assistant voice"
+            className="flex items-center gap-2 rounded-full border border-vc-line bg-vc-surface/60 px-3.5 py-2 text-[12px] text-vc-ink-2 backdrop-blur-sm transition hover:bg-vc-surface-2/70"
+          >
+            <Volume2 className="h-3.5 w-3.5 shrink-0" />
+            <span className="sr-only">Assistant voice</span>
+            <select
+              value={voiceId ?? voiceChoices[0]?.id ?? ''}
+              onChange={(e) => onVoiceChange(e.target.value)}
+              aria-label="Assistant voice"
+              className="max-w-[220px] cursor-pointer appearance-none truncate bg-transparent pr-0.5 text-[12px] text-vc-ink outline-none"
+            >
+              {voiceChoices.map((v) => (
+                <option key={v.id} value={v.id} className="bg-vc-surface-2 text-vc-ink">
+                  {v.name}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          </label>
+        )}
       </div>
 
       <div className="relative flex shrink-0 items-center justify-center gap-10 pb-[42px]">

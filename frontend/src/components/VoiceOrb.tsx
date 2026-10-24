@@ -6,6 +6,8 @@ type Props = {
   phase: VoicePhase
   size?: number
   className?: string
+  /** Optional live loudness source (0..1). Defaults to the assistant's mic meter. */
+  getLevel?: () => number
 }
 
 const LABELS: Record<VoicePhase, string> = {
@@ -26,10 +28,12 @@ const LABELS: Record<VoicePhase, string> = {
  * Animation runs entirely in a rAF loop writing to DOM refs. React state is
  * only the phase; 60 level updates a second would otherwise re-render the page.
  */
-export default function VoiceOrb({ phase, size = 300, className }: Props) {
+export default function VoiceOrb({ phase, size = 300, className, getLevel }: Props) {
   const haloRef = useRef<HTMLSpanElement | null>(null)
   const sphereRef = useRef<HTMLDivElement | null>(null)
   const phaseRef = useRef<VoicePhase>(phase)
+  const levelSourceRef = useRef<() => number>(getLevel ?? getVoiceLevel)
+  levelSourceRef.current = getLevel ?? getVoiceLevel
 
   useEffect(() => {
     phaseRef.current = phase
@@ -49,7 +53,8 @@ export default function VoiceOrb({ phase, size = 300, className }: Props) {
       const current = phaseRef.current
       // The mic only reports a level while listening/speaking, so idle phases
       // fall back to zero and lean on the slow self-pulse below.
-      const target = current === 'idle' ? 0 : getVoiceLevel()
+      const raw = current === 'idle' ? 0 : levelSourceRef.current()
+      const target = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0
 
       // Rise fast, fall slow — responsive without flickering.
       const rate = target > level ? 16 : 5

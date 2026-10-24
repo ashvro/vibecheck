@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, MessagesSquare, Send, Hash } from 'lucide-react'
 import { CrystalMark } from '../CrystalMark'
-import { GhostNum } from '../landing/GhostNum'
 
 const productLinks = [
   { label: 'Talk it out', href: '#features' },
@@ -55,14 +54,13 @@ function FooterLink({ label, href }: { label: string; href: string }) {
 
 export function LandingFooter() {
   return (
-    <footer className="relative overflow-hidden border-t border-ice/10 bg-thaw-deep text-ice">
-      <div className="landing-grid pointer-events-none absolute inset-0" aria-hidden />
+    <footer className="relative overflow-hidden border-t border-ice/10 bg-transparent text-ice">
+
       <div
         className="haze-blob pointer-events-none absolute -top-56 left-1/2 h-[28rem] w-[52rem] -translate-x-1/2 rounded-full bg-violet/15 blur-[140px]"
         aria-hidden
       />
       <div className="relative">
-        <GhostNum>04</GhostNum>
         <div className="relative z-10 mx-auto max-w-[1100px] px-5 sm:px-8 lg:px-10">
           <div className="flex flex-wrap items-center gap-2.5 border-b border-ice/10 py-8">
             <span className="mr-2 flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] text-ice/35 uppercase">
@@ -89,30 +87,7 @@ export function LandingFooter() {
             </span>
           </div>
 
-          <div className="flex flex-col items-start justify-between gap-8 py-16 sm:flex-row sm:items-end">
-            <div>
-              <div className="flex items-center gap-3">
-                <CrystalMark spinOnView />
-                <p className="font-mono text-[11px] tracking-[0.18em] text-ice/45 uppercase">
-                  Ready when you are
-                </p>
-              </div>
-              <h2 className="mt-4 font-display text-3xl font-bold tracking-tight sm:text-4xl">
-                Start with clarity.
-              </h2>
-              <p className="mt-3 max-w-sm text-sm leading-relaxed text-ice/45">
-                One quiet place for feelings, grades, and risk — no dashboards to babysit.
-              </p>
-            </div>
-            <Link to="/app" className="group landing-cta flex overflow-hidden">
-              <span className="flex items-center bg-ice px-5 py-3.5 text-sm font-semibold text-thaw transition group-hover:bg-ice-bright">
-                Launch app
-              </span>
-              <span className="flex w-12 items-center justify-center bg-thaw-deep text-ice transition group-hover:bg-black">
-                <ArrowUpRight className="h-4 w-4" />
-              </span>
-            </Link>
-          </div>
+
 
           <div className="grid gap-10 border-t border-ice/10 py-12 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.4fr]">
             <div>
@@ -185,12 +160,7 @@ export function LandingFooter() {
           </div>
 
           <div className="flex flex-col items-start justify-between gap-6 border-t border-ice/10 py-8 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2.5">
-              <CrystalMark />
-              <span className="font-mono text-[10px] tracking-[0.18em] text-ice/50 uppercase">
-                Clarity over noise
-              </span>
-            </div>
+
             <p className="max-w-xl text-xs leading-relaxed text-ice/30">
               If you are in crisis, call or text 988 (US) or visit your campus counseling center.
               VibeCheck supports — it does not replace — professional care. © 2026 VibeCheck Studio.

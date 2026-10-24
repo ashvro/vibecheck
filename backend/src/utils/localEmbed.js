@@ -30,7 +30,11 @@ function extractor() {
 
 /** Optional boot-time warm-up. */
 export async function warmLocalEmbed() {
-  await extractor()
+  const ex = await extractor()
+  // Load the ONNX graph and run one tiny inference. Loading alone still leaves
+  // the first real query paying ~0.8s of kernel/graph setup, which lands right
+  // inside the first voice turn.
+  await ex(['warm up'], { pooling: 'mean', normalize: true })
 }
 
 /** Embed one or many texts; always returns an array of vectors. */

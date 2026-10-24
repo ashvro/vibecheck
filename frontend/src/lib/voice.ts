@@ -1,6 +1,7 @@
 import * as vad from '@ricky0123/vad-web'
 import { SpeechStream, warmTts } from './tts'
 import { streamVoice } from './stream'
+import { api } from './api'
 
 export type VoicePhase =
   | 'idle'
@@ -27,9 +28,22 @@ export type VoiceHandlers = {
   onError: (message: string) => void
 }
 
+/**
+ * Transcription-only handlers used by the Relaxation tab. The deterministic
+ * script runner owns every spoken line, so this mode deliberately never calls
+ * the assistant LLM or speaks a reply of its own.
+ */
+export type VoiceInputHandlers = {
+  onPhase: (phase: VoicePhase) => void
+  onLevel?: (level: number) => void
+  onTranscript: (text: string) => void | Promise<void>
+  onError: (message: string) => void
+}
+
 let micVAD: vad.MicVAD | null = null
 let initPromise: Promise<vad.MicVAD> | null = null
 let handlers: VoiceHandlers | null = null
+let inputHandlers: VoiceInputHandlers | null = null
 let processing = false
 let speech: SpeechStream | null = null
 let turnAbort: AbortController | null = null
@@ -45,12 +59,13 @@ export function getVoiceLevel(): number {
 }
 
 export function isVoiceActive(): boolean {
-  return handlers !== null
+  return handlers !== null || inputHandlers !== null
 }
 
 function setPhase(next: VoicePhase) {
   phase = next
   handlers?.onPhase(next)
+  inputHandlers?.onPhase(next)
 }
 
 /** Root-mean-square of a frame, scaled to a rough 0..1 loudness. */
@@ -126,6 +141,34 @@ async function resumeListening() {
 }
 
 async function runTurn(audio: Blob) {
+  // Transcription-only mode: the caller owns the reply/script. No LLM, no TTS.
+  if (inputHandlers) {
+    if (processing) return
+    processing = true
+    setPhase('processing')
+    // Don't capture room noise while the utterance is being transcribed; the
+    // mic comes back only after the scripted reply has finished speaking.
+    if (micVAD?.listening) await micVAD.pause().catch(() => undefined)
+    try {
+      const form = new FormData()
+      form.append('audio', audio, 'voice.wav')
+      const { text } = await api.upload<{ text: string }>('/api/relaxation/transcribe', form)
+      if (!text?.trim()) throw new Error('Could not hear you — please try again.')
+      await inputHandlers.onTranscript(text.trim())
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        inputHandlers?.onError(err instanceof Error ? err.message : 'Voice request failed.')
+      }
+    } finally {
+      processing = false
+      if (inputHandlers) {
+        if (micVAD && !micVAD.listening) await micVAD.start().catch(() => undefined)
+        setPhase('listening')
+      }
+    }
+    return
+  }
+
   if (!handlers || processing) return
   processing = true
   setPhase('processing')
@@ -249,7 +292,7 @@ async function ensureVad(): Promise<vad.MicVAD> {
       if (micVAD?.listening && phase === 'listening') reportLevel(frameLevel(frame))
     },
     onSpeechRealStart() {
-      if (!handlers) return
+      if (!handlers && !inputHandlers) return
       // Barge-in. `onSpeechRealStart` only fires after a sustained, deliberate
       // utterance (unlike `onSpeechStart`, which fires on the first loud frame),
       // so a background noise blip no longer cancels the reply mid-sentence.
@@ -258,10 +301,10 @@ async function ensureVad(): Promise<vad.MicVAD> {
         speech = null
         setPhase('listening')
       }
-      if (processing) abortTurn()
+      if (processing && handlers) abortTurn()
     },
     onSpeechEnd: (audio) => {
-      if (!handlers || processing) return
+      if ((!handlers && !inputHandlers) || processing) return
       void runTurn(wavBlob(audio))
     },
   })
@@ -313,8 +356,47 @@ export async function startVoice(next: VoiceHandlers): Promise<void> {
   }
 }
 
+/**
+ * Starts microphone capture in transcription-only mode. The Relaxation tab uses
+ * this so its deterministic script (not an LLM) decides every spoken line.
+ */
+export async function startVoiceInput(next: VoiceInputHandlers): Promise<void> {
+  await stopVoiceInternal()
+  inputHandlers = next
+  setPhase('ready')
+  try {
+    const vadInstance = await ensureVad()
+    await vadInstance.start()
+    setPhase('listening')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Could not start voice.'
+    console.error('[voice] failed to start input', err)
+    setPhase('idle')
+    next.onError(message)
+    inputHandlers = null
+    throw err
+  }
+}
+
 export async function stopVoice(): Promise<void> {
   await stopVoiceInternal()
+}
+
+/**
+ * Pause/resume the microphone. The Relaxation tab pauses it while Calm is
+ * speaking so her own voice, a fan, or someone else in the room can never be
+ * transcribed as a reply. The VAD instance and permission stay warm.
+ */
+export async function pauseVoiceInput(): Promise<void> {
+  if (micVAD?.listening) await micVAD.pause().catch(() => undefined)
+}
+
+export async function resumeVoiceInput(): Promise<void> {
+  if (!inputHandlers) return
+  if (micVAD && !micVAD.listening) {
+    await micVAD.start().catch(() => undefined)
+  }
+  setPhase('listening')
 }
 
 async function stopVoiceInternal(): Promise<void> {
@@ -326,6 +408,7 @@ async function stopVoiceInternal(): Promise<void> {
   setPhase('idle')
   reportLevel(0)
   handlers = null
+  inputHandlers = null
   if (micVAD) {
     await micVAD.pause().catch(() => undefined)
   }

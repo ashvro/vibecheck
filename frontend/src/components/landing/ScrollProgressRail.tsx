@@ -43,7 +43,7 @@ export function ScrollProgressRail() {
   return (
     <div
       className={clsx(
-        'pointer-events-none fixed top-1/2 right-5 z-40 hidden -translate-y-1/2 flex-col items-end gap-6 transition-opacity duration-500 lg:flex',
+        'pointer-events-none fixed top-1/2 right-5 z-50 -translate-y-1/2 flex-col items-end gap-6 transition-opacity duration-500 flex',
         visible ? 'opacity-100' : 'opacity-0',
       )}
     >

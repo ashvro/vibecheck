@@ -8,6 +8,12 @@ export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token)
 }
 
+/** Clears the session token and cached user profile (used on sign out). */
+export function clearAuth() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem('vibecheck.user')
+}
+
 export function getUser(): Record<string, unknown> | null {
   try {
     const raw = localStorage.getItem('vibecheck.user')
@@ -32,6 +38,10 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 
   const data = await res.json().catch(() => ({}))
 
+  // A rejected token (expired or server reset) means the session is dead —
+  // forget it so the router sends the user to the sign-in page on next visit.
+  if (res.status === 401) clearAuth()
+
   if (!res.ok) {
     const message = (data as { error?: unknown }).error
     throw new Error(typeof message === 'string' ? message : `Request failed (${res.status}).`)
@@ -45,6 +55,7 @@ async function downloadFile(url: string): Promise<Blob> {
   const res = await fetch(url, {
     headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
   })
+  if (res.status === 401) clearAuth()
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     const message = (data as { error?: unknown }).error

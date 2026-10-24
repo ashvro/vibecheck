@@ -99,19 +99,40 @@ function sessionLabel(s: ChatSession): string {
   return 'New chat'
 }
 
+/**
+ * Module-level cache. The assistant tab unmounts every time the user visits
+ * another tab, so without this each switch back re-fetched the session list and
+ * the open transcript and flashed a "Loading conversations…" state. The cache
+ * outlives the component, so coming back to the tab paints the previous
+ * conversation instantly while the network refresh runs behind it.
+ */
+type CachedAssistantState = {
+  sessions: ChatSession[]
+  sessionId: number | null
+  messages: Message[]
+}
+
+const assistantCache: CachedAssistantState = { sessions: [], sessionId: null, messages: [] }
+/** Transcript per session id, so reopening a chat is instant too. */
+const messageCache = new Map<number, Message[]>()
+/** TTS voice options, so the composer picker is populated on first paint. */
+let voiceChoicesCache: Array<{ id: string; name: string }> | null = null
+
 export function AIAssistantPage() {
-  const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [sessionId, setSessionId] = useState<number | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const [sessions, setSessions] = useState<ChatSession[]>(() => assistantCache.sessions)
+  const [sessionId, setSessionId] = useState<number | null>(() => assistantCache.sessionId)
+  const [messages, setMessages] = useState<Message[]>(() => assistantCache.messages)
   const [input, setInput] = useState('')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => assistantCache.sessions.length === 0)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
   const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle')
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
-  const [voiceChoices, setVoiceChoices] = useState<Array<{ id: string; name: string }>>([])
+  const [voiceChoices, setVoiceChoices] = useState<Array<{ id: string; name: string }>>(
+    () => voiceChoicesCache ?? [],
+  )
   const [voiceId, setVoiceId] = useState<string | null>(getSelectedVoiceId())
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null)
   const [urgentOpen, setUrgentOpen] = useState(false)
@@ -134,8 +155,10 @@ export function AIAssistantPage() {
   }, [sessionId])
 
   useEffect(() => {
-    prewarmVoice()
+    // Warm the voice model off the critical path so the tab paints first.
+    const timer = window.setTimeout(() => prewarmVoice(), 250)
     return () => {
+      window.clearTimeout(timer)
       sendAbortRef.current?.abort()
       ttsRef.current?.cancel()
       void stopVoice()
@@ -149,13 +172,25 @@ export function AIAssistantPage() {
       try {
         const status = await getTtsStatus()
         if (!status.provider || !alive) return
-        const voices = await listTtsVoices()
+        const voices = voiceChoicesCache?.length ? voiceChoicesCache : await listTtsVoices()
         if (!alive) return
         const mapped = voices.filter((v) => v.id).map((v) => ({ id: v.id as string, name: v.name || v.id }))
+        // Only remember a real list — an empty one must be refetched next visit.
+        if (mapped.length) voiceChoicesCache = mapped
         setVoiceChoices(mapped)
+        // A saved voice can be from an old ElevenLabs key/account. If it is no
+        // longer in the list, fall back to the configured default (or the first
+        // available voice) so TTS never sends an unknown voice id.
         const current = getSelectedVoiceId()
-        if (!current && status.defaultVoiceId && mapped.some((v) => v.id === status.defaultVoiceId)) {
-          setVoiceId(status.defaultVoiceId)
+        if (!mapped.some((v) => v.id === current)) {
+          const fallback =
+            status.defaultVoiceId && mapped.some((v) => v.id === status.defaultVoiceId)
+              ? status.defaultVoiceId
+              : mapped[0]?.id
+          if (fallback) {
+            setVoiceId(fallback)
+            setSelectedVoiceId(fallback)
+          }
         }
       } catch {
         /* voices are optional */
@@ -212,12 +247,21 @@ export function AIAssistantPage() {
   const voiceActive = voicePhase !== 'idle'
 
   async function loadMessagesFor(id: number) {
-    setLoadingMessages(true)
+    const cached = messageCache.get(id)
+    if (cached) {
+      // Paint the cached transcript right away — no spinner, no waiting.
+      setMessages(cached)
+      setLoadingMessages(false)
+    } else {
+      setLoadingMessages(true)
+    }
     try {
       const backendMsgs = await api.get<BackendMessage[]>(`/api/assistant/messages?sessionId=${id}`)
-      setMessages(backendMsgs.map(mapBackend))
+      const mapped = backendMsgs.map(mapBackend)
+      messageCache.set(id, mapped)
+      setMessages(mapped)
     } catch {
-      setMessages([])
+      if (!cached) setMessages([])
     } finally {
       setLoadingMessages(false)
     }
@@ -234,18 +278,21 @@ export function AIAssistantPage() {
 
   useEffect(() => {
     let cancelled = false
-    // Load sessions and messages in parallel for faster initial load
+    // Refresh in the background. Anything already cached is on screen by now,
+    // so this never blocks the tab from rendering.
     api
       .get<ChatSession[]>('/api/assistant/sessions')
       .then(async (list) => {
         if (cancelled) return
         setSessions(list)
-        if (list.length && sessionId === null) {
-          const firstId = list[0].id
-          setSessionId(firstId)
-          // Load messages in parallel, don't wait
-          loadMessagesFor(firstId)
+        assistantCache.sessions = list
+        const target = sessionId ?? list[0]?.id ?? null
+        if (target == null) return
+        if (target !== sessionId) {
+          setSessionId(target)
+          forceBottomRef.current = true
         }
+        await loadMessagesFor(target)
       })
       .catch(() => undefined)
       .finally(() => {
@@ -255,6 +302,16 @@ export function AIAssistantPage() {
       cancelled = true
     }
   }, [])
+
+  /* Keep the module cache in step with what is on screen, so the next visit
+     to this tab paints the same conversation instantly. */
+  useEffect(() => {
+    assistantCache.sessions = sessions
+    assistantCache.sessionId = sessionId
+    if (loadingMessages) return
+    assistantCache.messages = messages
+    if (sessionId != null) messageCache.set(sessionId, messages)
+  }, [sessions, sessionId, messages, loadingMessages])
 
   const lastMsg = messages[messages.length - 1]
   const lastText = lastMsg?.text ?? ''
@@ -463,6 +520,8 @@ export function AIAssistantPage() {
       setSessions((prev) => [created, ...prev.filter((s) => s.id !== res.id)])
       setSessionId(res.id)
       setMessages([])
+      messageCache.delete(res.id)
+      forceBottomRef.current = true
     } catch {
       setSessionId(null)
       setMessages([])
@@ -474,7 +533,7 @@ export function AIAssistantPage() {
     if (isVoiceActive()) void stopVoice()
     setVoiceError(null)
     setSessionId(id)
-    setMessages([])
+    forceBottomRef.current = true
     await loadMessagesFor(id)
   }
 
@@ -488,13 +547,13 @@ export function AIAssistantPage() {
     setConfirmingDelete(null)
     try {
       await api.del(`/api/assistant/sessions/${id}`)
+      messageCache.delete(id)
       const remaining = sessions.filter((s) => s.id !== id)
       setSessions(remaining)
       if (sessionId === id) {
         const next = remaining[0]
         if (next) {
           setSessionId(next.id)
-          setMessages([])
           await loadMessagesFor(next.id)
         } else {
           setSessionId(null)
@@ -519,32 +578,30 @@ export function AIAssistantPage() {
   }
 
   return (
-    <div className="vc-glass relative flex h-[calc(100vh-7.5rem)] min-h-[520px] overflow-hidden rounded-2xl border border-vc-line text-vc-ink shadow-[var(--depth-1)]">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header
-          className={clsx(
-            'flex h-[58px] shrink-0 items-center justify-between gap-4 px-[19px]',
-            !isEmpty && 'border-b border-vc-line',
-          )}
+    <div className="relative flex h-full flex-col gap-4 overflow-hidden text-ink">
+      <header className="flex shrink-0 items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-[26px] leading-tight font-medium text-vc-ink">AI Assistant</h1>
+          <p className="mt-1 text-[13px] text-vc-ink-2">
+            Intent-aware, safety-first support for whatever is on your mind.
+          </p>
+          <ModePills active={currentMode} className="mt-2" />
+        </div>
+        <button
+          type="button"
+          onClick={() => setUrgentOpen(true)}
+          className="shrink-0 text-[13px] font-medium text-vc-alert transition hover:brightness-110"
         >
-          <div className="min-w-0">
-            <p className="font-mono text-[10px] leading-[15px] tracking-[0.12em] text-vc-ink-2 uppercase">
-              Intent-aware · Safety-first pipeline
-            </p>
-            <ModePills active={currentMode} className="mt-1" />
-          </div>
-          <button
-            type="button"
-            onClick={() => setUrgentOpen(true)}
-            className="shrink-0 text-[13px] font-medium text-vc-alert transition hover:brightness-110"
-          >
-            Need urgent help?
-          </button>
-        </header>
+          Need urgent help?
+        </button>
+      </header>
 
-        <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 gap-4">
+        {/* Conversations card */}
+        <aside className="flex w-[300px] shrink-0 flex-col rounded-[28px] border border-vc-card-line p-4">
+          <p className="mb-3 text-[13px] font-medium text-vc-ink">Conversations</p>
           <ChatHistory
-            className="ml-4 w-[280px] shrink-0"
+            className="mt-0 flex min-h-0 flex-1 flex-col"
             sessions={sessions.map((s) => ({ id: s.id, title: sessionLabel(s) }))}
             activeId={sessionId}
             loading={loading}
@@ -555,127 +612,129 @@ export function AIAssistantPage() {
             search={search}
             onSearchChange={setSearch}
           />
+        </aside>
 
-          <div className="ml-5 mr-0 h-full w-px bg-vc-line" />
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-6">
-            {/* The scroller and the composer are separate flex children so the
-                transcript can never scroll underneath the composer panel. */}
-            <div className="relative min-h-0 flex-1">
+        {/* Chat card */}
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-vc-card-line">
+          {/* The scroller and the composer are separate flex children so the
+              transcript can never scroll underneath the composer panel. */}
+          <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollerRef}
+              onScroll={handleTranscriptScroll}
+              className={clsx(
+                'vc-scroll h-full overflow-y-auto overscroll-contain',
+                isEmpty && 'flex flex-col justify-center',
+              )}
+            >
               <div
-                ref={scrollerRef}
-                onScroll={handleTranscriptScroll}
                 className={clsx(
-                  'vc-scroll h-full overflow-y-auto overscroll-contain',
-                  isEmpty && 'flex flex-col justify-center',
+                  'mx-auto w-full max-w-[860px]',
+                  isEmpty ? 'pb-[54px]' : 'pt-6 pb-16',
                 )}
               >
-                <div
-                  className={clsx(
-                    'mx-auto w-full max-w-[860px]',
-                    isEmpty ? 'pb-[54px]' : 'pt-6 pb-16',
-                  )}
-                >
-                {loading && <p className="py-10 text-center text-[13px] text-vc-ink-2">Loading conversations…</p>}
-                {!loading && loadingMessages && <p className="py-10 text-center text-[13px] text-vc-ink-2">Loading messages…</p>}
+              {loading && <p className="py-10 text-center text-[13px] text-vc-ink-2">Loading conversations…</p>}
+              {!loading && loadingMessages && <p className="py-10 text-center text-[13px] text-vc-ink-2">Loading messages…</p>}
 
-                {isEmpty && (
-                  <p className="h-[38px] text-center text-[32px] leading-tight font-semibold text-vc-ink">
-                    What's on your mind?
-                  </p>
-                )}
+              {isEmpty && (
+                <p className="h-[38px] text-center text-[32px] leading-tight font-semibold text-vc-ink">
+                  What's on your mind?
+                </p>
+              )}
 
-                {isEmpty && (
-                  <div className="pt-[24px]">
-                    <Composer
-                      value={input}
-                      onChange={setInput}
-                      onSend={send}
-                      sending={sending}
-                      voicePhase={voicePhase}
-                      onMicToggle={handleMicToggle}
-                      voiceChoices={voiceChoices}
-                      voiceId={voiceId}
-                      onVoiceChange={changeVoice}
-                      voiceError={voiceError}
-                    />
-                  </div>
-                )}
-
-                {turns.map((turn) => (
-                  <div key={turn.key} className="mb-6">
-                    {turn.divider && <SwitchedDivider mode={turn.divider} />}
-                    <div className="space-y-5">
-                      {turn.user && <UserBubble text={turn.user.text} />}
-                      {turn.assistant && turn.assistant.text.trim() && (
-                        <AssistantReply
-                          message={turn.assistant}
-                          onGuide={guide}
-                          onSpeak={speak}
-                          speaking={speakingId === turn.assistant.id}
-                        />
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {sending && lastMsg?.role !== 'assistant' && (
-                  <div className="flex items-center gap-2 text-[13px] text-vc-ink-2">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-vc-general" />
-                    Reading your message…
-                  </div>
-                )}
-                  </div>
-              </div>
-
-              {/* Floats above the transcript only — it never crosses the
-                  composer, so it cannot sit on top of a message. */}
-              {!atBottom && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      forceBottomRef.current = true
-                      scrollToBottom(true)
-                    }}
-                    className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-vc-line bg-vc-surface px-3 py-1.5 text-[11px] text-vc-ink-2 shadow-lg transition hover:text-vc-ink"
-                  >
-                    <ArrowDown className="h-3.5 w-3.5" />
-                    Latest
-                  </button>
+              {isEmpty && (
+                <div className="pt-[24px]">
+                  <Composer
+                    value={input}
+                    onChange={setInput}
+                    onSend={send}
+                    sending={sending}
+                    voicePhase={voicePhase}
+                    onMicToggle={handleMicToggle}
+                    voiceChoices={voiceChoices}
+                    voiceId={voiceId}
+                    onVoiceChange={changeVoice}
+                    voiceError={voiceError}
+                  />
                 </div>
               )}
+
+              {turns.map((turn) => (
+                <div key={turn.key} className="mb-6">
+                  {turn.divider && <SwitchedDivider mode={turn.divider} />}
+                  <div className="space-y-5">
+                    {turn.user && <UserBubble text={turn.user.text} />}
+                    {turn.assistant && turn.assistant.text.trim() && (
+                      <AssistantReply
+                        message={turn.assistant}
+                        onGuide={guide}
+                        onSpeak={speak}
+                        speaking={speakingId === turn.assistant.id}
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {sending && lastMsg?.role !== 'assistant' && (
+                <div className="flex items-center gap-2 text-[13px] text-vc-ink-2">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-vc-general" />
+                  Reading your message…
+                </div>
+              )}
+                </div>
             </div>
 
-        <div className="shrink-0 px-5 pb-4">
-          <div className="mx-auto w-full max-w-[860px]">
-            {!isEmpty && (
-              <Composer
-                value={input}
-                onChange={setInput}
-                onSend={send}
-                sending={sending}
-                voicePhase={voicePhase}
-                onMicToggle={handleMicToggle}
-                voiceChoices={voiceChoices}
-                voiceId={voiceId}
-                onVoiceChange={changeVoice}
-                voiceError={voiceError}
-              />
+            {/* Floats above the transcript only — it never crosses the
+                composer, so it cannot sit on top of a message. */}
+            {!atBottom && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    forceBottomRef.current = true
+                    scrollToBottom(true)
+                  }}
+                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-vc-line bg-vc-surface px-3 py-1.5 text-[11px] text-vc-ink-2 shadow-lg transition hover:text-vc-ink"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                  Latest
+                </button>
+              </div>
             )}
-            <p className={clsx('text-center text-[12px] text-vc-ink-2', !isEmpty && 'mt-2.5')}>
-              {DISCLAIMER}
-            </p>
           </div>
-        </div>
+
+          <div className="shrink-0 border-t border-vc-card-line px-5 py-4">
+            <div className="mx-auto w-full max-w-[860px]">
+              {!isEmpty && (
+                <Composer
+                  value={input}
+                  onChange={setInput}
+                  onSend={send}
+                  sending={sending}
+                  voicePhase={voicePhase}
+                  onMicToggle={handleMicToggle}
+                  voiceChoices={voiceChoices}
+                  voiceId={voiceId}
+                  onVoiceChange={changeVoice}
+                  voiceError={voiceError}
+                />
+              )}
+              <p className={clsx('text-center text-[12px] text-vc-ink-2', !isEmpty && 'mt-2.5')}>
+                {DISCLAIMER}
+              </p>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
 
       <VoiceOverlay
         open={voiceOpen && voiceActive}
         phase={voicePhase}
         activeMode={currentMode}
+        voiceChoices={voiceChoices}
+        voiceId={voiceId}
+        onVoiceChange={changeVoice}
         onExit={() => {
           setVoiceOpen(false)
           if (isVoiceActive()) {

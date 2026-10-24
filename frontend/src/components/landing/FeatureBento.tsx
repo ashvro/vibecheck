@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { CrystalMark } from '../CrystalMark'
 import { Reveal } from './Reveal'
-import { GhostNum } from './GhostNum'
 import { useInView } from '../../hooks/useInView'
 import type { PointerEvent } from 'react'
 
@@ -425,21 +424,10 @@ function BentoCard({ feature }: { feature: Feature }) {
 
 export function FeatureBento() {
   return (
-    <section id="features" className="relative scroll-mt-20 landing-frost py-20 text-ice sm:py-28">
-      <GhostNum>01</GhostNum>
+    <section id="features" className="relative scroll-mt-20 bg-transparent py-20 text-ice sm:py-28">
       <div className="relative z-10 mx-auto max-w-[1100px] px-5 sm:px-8 lg:px-10">
         <Reveal className="max-w-xl">
-          <div className="section-marker" aria-hidden>
-            <span className="h-px w-9 bg-gradient-to-r from-violet-soft/70 to-transparent" />
-            <span className="font-mono text-[10px] tracking-[0.28em] text-ice/30 uppercase">
-              01 · approach
-            </span>
-          </div>
-          <div className="mt-4 flex items-center gap-3">
-            <CrystalMark spinOnView />
-            <p className="font-mono text-[11px] tracking-[0.18em] text-ice/45 uppercase">Approach</p>
-          </div>
-          <h2 className="mt-4 font-display text-3xl font-bold tracking-tight text-ice sm:text-5xl">
+          <h2 className="font-display text-3xl font-bold tracking-tight text-ice sm:text-5xl">
             Campus support, without the noise
           </h2>
           <p className="mt-4 text-[15px] leading-relaxed text-ice/55">

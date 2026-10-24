@@ -131,7 +131,7 @@ export function AnalyticsPage() {
   }
 
   return (
-    <div className="rise-grid mx-auto max-w-6xl space-y-6">
+    <div className="rise-grid mx-auto max-w-[1560px] space-y-6">
       <div className="space-y-1">
         <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Your Academic Analysis</h1>
         <p className="text-sm text-muted">{data?.summaryText ?? 'Loading your analytics…'}</p>

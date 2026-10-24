@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
 import clsx from 'clsx'
 import {
   ArrowLeft,
+  ArrowRight,
   CheckCheck,
   Code2,
   GraduationCap,
@@ -53,12 +62,16 @@ const catStyles: Record<string, string> = {
 }
 
 const categoryAccent: Record<string, string> = {
-  Tech: '#8b5cf6',
+  Tech: '#a78bfa',
   Sports: '#38bdf8',
-  'Arts/Music': '#b8a4e0',
-  Academic: '#d4b896',
-  Social: '#f43f5e',
+  'Arts/Music': '#f472b6',
+  Academic: '#fbbf24',
+  Social: '#34d399',
 }
+
+/* The chat rail labels a club "Active now" when its newest message landed
+   inside this window. */
+const ACTIVE_WINDOW_MS = 60 * 60 * 1000
 
 const categoryBanner: Record<string, string> = {
   Tech: 'linear-gradient(135deg, #312e81 0%, #5b21b6 40%, #8b5cf6 75%, #c4b5fd 100%)',
@@ -124,42 +137,29 @@ function bannerStyle(category: string, custom?: string | null) {
   }
 }
 
-function CategoryDecor({ category }: { category: string }) {
-  const cls = 'pointer-events-none absolute -bottom-2 -right-2 opacity-25'
+function CategoryGlyph({ category, className }: { category: string; className?: string }) {
   switch (category) {
     case 'Tech':
-      return (
-        <div className={cls}>
-          <Code2 className="h-20 w-20 rotate-12 text-white" />
-        </div>
-      )
+      return <Code2 className={className} />
     case 'Sports':
-      return (
-        <div className={cls}>
-          <Trophy className="h-20 w-20 -rotate-12 text-white" />
-        </div>
-      )
+      return <Trophy className={className} />
     case 'Arts/Music':
-      return (
-        <div className={cls}>
-          <Music className="h-20 w-20 rotate-6 text-white" />
-        </div>
-      )
+      return <Music className={className} />
     case 'Academic':
-      return (
-        <div className={cls}>
-          <GraduationCap className="h-20 w-20 -rotate-6 text-white" />
-        </div>
-      )
+      return <GraduationCap className={className} />
     case 'Social':
-      return (
-        <div className={cls}>
-          <Handshake className="h-20 w-20 rotate-6 text-white" />
-        </div>
-      )
+      return <Handshake className={className} />
     default:
       return null
   }
+}
+
+function CategoryDecor({ category }: { category: string }) {
+  return (
+    <div className="pointer-events-none absolute -right-2 -bottom-2 opacity-25">
+      <CategoryGlyph category={category} className="h-20 w-20 rotate-12 text-white" />
+    </div>
+  )
 }
 
 function accentInk(color: string) {
@@ -210,6 +210,507 @@ function newCountFor(clubId: number, msgs: ClubMessage[], meId: number | undefin
   }).length
 }
 
+/* --------------------------------------------------------------------------
+   Redesigned Clubs board — presentation split into four pieces:
+   YourClubsRail / YourClubCard (chat-first) and DiscoverGrid /
+   DiscoverClubCard (banner cards). State, sockets and API calls stay in
+   ClubsPage below; these components are pure and receive everything as props.
+   -------------------------------------------------------------------------- */
+
+type YourClubEntry = {
+  club: Club
+  unread: number
+  lastMsg: ClubMessage | null
+  lastAt: number
+  activeNow: boolean
+  senders: string[]
+}
+
+function relativeTime(iso: string): string {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const diff = Date.now() - then
+  if (diff < 60_000) return 'now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`
+  return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function SectionHeading({ label, count, id }: { label: string; count: string; id?: string }) {
+  return (
+    <div className="flex shrink-0 items-center gap-2.5">
+      <h2 id={id} className="text-sm font-semibold" style={{ color: '#ece8ff' }}>
+        {label}
+      </h2>
+      <span
+        className="ml-auto font-mono text-[10px] tracking-[0.14em] uppercase"
+        style={{ color: '#7d76a3' }}
+      >
+        {count}
+      </span>
+    </div>
+  )
+}
+
+function YourClubCard({
+  entry,
+  members,
+  meId,
+  meName,
+  onOpen,
+}: {
+  entry: YourClubEntry
+  members?: ClubMember[]
+  meId?: number
+  meName?: string
+  onOpen: (id: number) => void
+}) {
+  const { club, unread, lastMsg, activeNow } = entry
+  const accent = club.accent || categoryAccent[clubCategory(club)] || '#a78bfa'
+  const senderName = lastMsg
+    ? lastMsg.userId === meId && meName
+      ? meName
+      : lastMsg.author
+    : ''
+
+  const stack = useMemo(() => {
+    if (members && members.length > 0) {
+      return members.slice(0, 3).map((m) => ({ key: `m-${m.id}`, label: initials(m.name), name: m.name }))
+    }
+    if (entry.senders.length > 0) {
+      return entry.senders.slice(0, 3).map((name, i) => ({ key: `s-${i}-${name}`, label: initials(name), name }))
+    }
+    return [{ key: 'club', label: clubInitial(club.name), name: club.name }]
+  }, [members, entry.senders, club.name])
+
+  function handleKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onOpen(club.id)
+    }
+  }
+
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${club.name} chat`}
+      onClick={() => onOpen(club.id)}
+      onKeyDown={handleKeyDown}
+      className="group relative flex w-full shrink-0 cursor-pointer flex-col overflow-hidden rounded-[18px] border bg-[#120d27] p-[14px] text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_-16px_rgba(139,92,246,.45)] focus-visible:ring-2 focus-visible:ring-[#a78bfa]/60 focus-visible:outline-none"
+      style={{
+        borderColor: `color-mix(in srgb, ${accent} 40%, transparent)`,
+        background: `linear-gradient(160deg, color-mix(in srgb, ${accent} 38%, #120d27), #120d27 62%)`,
+      }}
+    >
+      {/* faint dot texture fading out by the middle */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-40"
+        style={{
+          backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.18) 1px, transparent 1.4px)`,
+          backgroundSize: '20px 20px',
+          WebkitMaskImage: 'linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 45%, transparent 75%)',
+          maskImage: 'linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 45%, transparent 75%)',
+        }}
+      />
+
+      {/* watermark icon cropped top-right */}
+      <span className="pointer-events-none absolute -top-2 -right-2 opacity-[0.12]">
+        <CategoryGlyph category={clubCategory(club)} className="h-[100px] w-[100px] rotate-12 text-white" />
+      </span>
+
+      {/* Row 1 — identity + unread / presence */}
+      <div className="relative flex items-start gap-3">
+        <span
+          className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[15px] border text-[20px] font-bold shadow-[0_6px_18px_rgba(8,6,20,.6)]"
+          style={{
+            background: `radial-gradient(circle at 50% 30%, ${accent}40, rgba(11,9,16,.98))`,
+            borderColor: accent,
+            color: accent,
+            boxShadow: `0 0 0 3px rgba(18,13,39,1), 0 0 18px ${accent}4d`,
+          }}
+        >
+          {clubInitial(club.name)}
+        </span>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="truncate text-[17px] leading-snug font-semibold" style={{ color: '#ece8ff' }}>
+            {club.name}
+          </p>
+          <span
+            className="mt-0.5 block truncate font-mono text-[9px] tracking-[0.14em] uppercase"
+            style={{ color: '#7d76a3' }}
+          >
+            {clubCategory(club)}
+          </span>
+        </div>
+        {unread > 0 ? (
+          <span
+            className="ml-auto flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold"
+            style={{ backgroundColor: accent, color: '#160f2b', boxShadow: `0 0 12px ${accent}80` }}
+            aria-label={`${unread} unread messages`}
+          >
+            {unread > 9 ? '9+' : unread}
+          </span>
+        ) : activeNow ? (
+          <span
+            className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[9px] tracking-[0.14em] uppercase"
+            style={{ color: '#34d399' }}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: '#34d399', boxShadow: '0 0 8px #34d399' }}
+            />
+            Active now
+          </span>
+        ) : null}
+      </div>
+
+      {/* Row 2 — last message preview */}
+      <div
+        className="relative mt-3 flex items-center gap-2.5 rounded-[11px] border border-white/[0.05] px-2.5 py-1.5"
+        style={{ backgroundColor: 'rgba(255,255,255,.04)' }}
+      >
+        {lastMsg ? (
+          <>
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[9px] font-semibold"
+              style={{
+                backgroundColor: `${accent}24`,
+                borderColor: `${accent}40`,
+                color: accent,
+              }}
+            >
+              {initials(senderName).charAt(0)}
+            </span>
+            <p className="min-w-0 flex-1 truncate text-[12px]" style={{ color: '#9a93bd' }}>
+              <span className="font-semibold" style={{ color: '#ece8ff' }}>
+                {senderName}
+              </span>
+              <span className="mx-1.5" style={{ color: '#7d76a3' }}>
+                ·
+              </span>
+              {lastMsg.body}
+            </p>
+            <span className="shrink-0 font-mono text-[9px] tabular-nums" style={{ color: '#7d76a3' }}>
+              {relativeTime(lastMsg.createdAt)}
+            </span>
+          </>
+        ) : (
+          <p className="min-w-0 flex-1 truncate text-[12px] italic" style={{ color: '#7d76a3' }}>
+            No messages yet — say hi and start the conversation.
+          </p>
+        )}
+      </div>
+
+      {/* Row 3 — members + open chat */}
+      <div className="relative mt-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="truncate font-mono text-[9px] tracking-[0.12em] uppercase"
+            style={{ color: '#7d76a3' }}
+          >
+            {club.members} {club.members === 1 ? 'member' : 'members'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpen(club.id)
+          }}
+          className="flex shrink-0 items-center gap-1 rounded-[10px] border px-2.5 py-1.5 text-[11px] font-semibold transition hover:bg-white/[0.13]"
+          style={{
+            backgroundColor: 'rgba(255,255,255,.08)',
+            borderColor: 'rgba(255,255,255,.14)',
+            color: '#ece8ff',
+          }}
+        >
+          Open chat <ArrowRight className="h-3 w-3" />
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function YourClubsRail({
+  entries,
+  membersById,
+  meId,
+  meName,
+  onOpen,
+}: {
+  entries: YourClubEntry[]
+  membersById: Record<number, ClubMember[]>
+  meId?: number
+  meName?: string
+  onOpen: (id: number) => void
+}) {
+  return (
+    <div
+      className="rounded-[24px] border p-[18px] max-[1100px]:flex max-[1100px]:flex-col max-[1100px]:gap-3"
+      style={{
+        borderColor: 'rgba(168,85,247,.22)',
+        background: 'linear-gradient(180deg, rgba(124,58,237,.10), rgba(255,255,255,.02))',
+      }}
+    >
+      {entries.length === 0 ? (
+        <div
+          className="flex min-h-[190px] flex-col items-center justify-center gap-2 rounded-[16px] border border-dashed px-5 py-8 text-center max-[1100px]:min-h-[140px]"
+          style={{ borderColor: 'rgba(168,85,247,.3)' }}
+        >
+          <p className="text-sm font-medium" style={{ color: '#ece8ff' }}>
+            You haven&apos;t joined any clubs yet
+          </p>
+          <p className="text-xs" style={{ color: '#7d76a3' }}>
+            Browse clubs on the right{' '}
+            <span aria-hidden style={{ color: '#a78bfa' }}>
+              →
+            </span>
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-[14px] max-[1100px]:flex-row max-[1100px]:overflow-x-auto max-[1100px]:pb-1 max-[1100px]:snap-x max-[1100px]:snap-mandatory">
+            {entries.map((entry) => (
+              <div key={entry.club.id} className="max-[1100px]:w-[320px] max-[1100px]:shrink-0 max-[1100px]:snap-start">
+                <YourClubCard
+                  entry={entry}
+                  members={membersById[entry.club.id]}
+                  meId={meId}
+                  meName={meName}
+                  onOpen={onOpen}
+                />
+              </div>
+            ))}
+          </div>
+          <p
+            className="rounded-[12px] border border-dashed px-3 py-2.5 text-center text-[11px] max-[1100px]:mt-1"
+            style={{ borderColor: 'rgba(168,85,247,.26)', color: '#7d76a3' }}
+          >
+            Looking for more? Browse clubs on the right{' '}
+            <span aria-hidden style={{ color: '#a78bfa' }}>
+              →
+            </span>
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+function DiscoverClubTile({
+  club,
+  joined,
+  popular,
+  menuOpen,
+  onToggleMenu,
+  onJoin,
+  onDelete,
+}: {
+  club: Club
+  joined: boolean
+  popular: boolean
+  menuOpen: boolean
+  onToggleMenu: () => void
+  onJoin: () => void
+  onDelete: () => void
+}) {
+  const category = clubCategory(club)
+  const accent = club.accent || categoryAccent[category] || '#a78bfa'
+
+  return (
+    <article
+      className="group relative flex aspect-square w-full flex-col overflow-hidden rounded-[20px] border transition duration-200 hover:-translate-y-[3px] hover:shadow-[0_14px_30px_-12px_var(--c)]"
+      style={{
+        ['--c' as any]: accent,
+        borderColor: `color-mix(in srgb, ${accent} 40%, transparent)`,
+        background: `linear-gradient(160deg, color-mix(in srgb, ${accent} 38%, #120d27), #120d27 62%)`,
+      }}
+    >
+      {/* faint dot texture fading out by the middle */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-40"
+        style={{
+          backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.18) 1px, transparent 1.4px)`,
+          backgroundSize: '20px 20px',
+          WebkitMaskImage: 'linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 45%, transparent 75%)',
+          maskImage: 'linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.25) 45%, transparent 75%)',
+        }}
+      />
+
+      {/* watermark icon cropped top-right */}
+      <span className="pointer-events-none absolute -top-2 -right-2 opacity-[0.14]">
+        <CategoryGlyph category={category} className="h-[110px] w-[110px] rotate-12 text-white" />
+      </span>
+
+      {/* hover menu */}
+      <div className="absolute top-2 right-2 z-20">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleMenu()
+          }}
+          className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/30 text-white/80 opacity-0 backdrop-blur-md transition group-hover:opacity-100 hover:bg-black/50 hover:text-white"
+          aria-label={`More options for ${club.name}`}
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+        {menuOpen && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-8 right-0 z-20 min-w-[120px] rounded-xl border p-1 shadow-lg backdrop-blur-xl"
+            style={{ background: 'rgba(26,21,36,0.95)', borderColor: 'rgba(184,164,224,0.2)' }}
+          >
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition hover:bg-violet/10"
+              style={{ color: '#cfc8e6' }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* top row: avatar + status chip */}
+      <div className="relative flex items-start justify-between gap-2 p-3">
+        <span
+          className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[13px] border text-[16px] font-bold"
+          style={{
+            background: `radial-gradient(circle at 50% 30%, ${accent}40, rgba(11,9,16,.98))`,
+            borderColor: accent,
+            color: accent,
+            boxShadow: `0 0 0 3px rgba(18,13,39,1), 0 0 18px ${accent}4d`,
+          }}
+        >
+          {clubInitial(club.name)}
+        </span>
+
+        {joined ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-[#34d399]/45 bg-[#34d399]/10 px-2 py-0.5 text-[9px] font-semibold text-[#34d399]">
+            ✓ Joined
+          </span>
+        ) : popular ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-[#fbbf24] to-[#f59e0b] px-2 py-0.5 text-[9px] font-bold text-[#2a1a05]">
+            🔥 Popular
+          </span>
+        ) : null}
+      </div>
+
+      {/* bottom block */}
+      <div className="relative mt-auto flex flex-col gap-1.5 px-3 pb-3">
+        <span
+          className="font-mono text-[9px] uppercase tracking-[0.14em]"
+          style={{ color: accent }}
+        >
+          {category}
+        </span>
+        <p className="truncate text-[16px] font-bold leading-tight" style={{ color: '#ece8ff' }}>
+          {club.name}
+        </p>
+        <p
+          className="line-clamp-2 text-[12px] leading-snug"
+          style={{ color: '#9a93bd', minHeight: '34px' }}
+        >
+          {club.description || 'A new club waiting for its people.'}
+        </p>
+
+        <div className="mt-1 flex items-center gap-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.12em]" style={{ color: '#7d76a3' }}>
+            {club.members} members
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={onJoin}
+          className="mt-2 h-[36px] w-full rounded-[11px] text-[11px] font-semibold transition"
+          style={
+            joined
+              ? {
+                  background: 'transparent',
+                  border: '1px solid #34d399',
+                  color: '#34d399',
+                }
+              : {
+                  background: accent,
+                  border: `1px solid ${accent}`,
+                  color: '#160f2b',
+                }
+          }
+        >
+          {joined ? '✓ Joined' : 'Join club'}
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function DiscoverGrid({
+  clubs,
+  joinedIds,
+  menuOpenId,
+  onToggleMenu,
+  onJoin,
+  onDelete,
+  onCreate,
+}: {
+  clubs: Club[]
+  joinedIds: number[]
+  menuOpenId: number | null
+  onToggleMenu: (id: number) => void
+  onJoin: (id: number) => void
+  onDelete: (id: number, name: string) => void
+  onCreate: () => void
+}) {
+  const maxMembers = clubs.reduce((max, club) => Math.max(max, club.members), 0)
+
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-[14px]">
+      {clubs.map((club) => (
+        <DiscoverClubTile
+          key={club.id}
+          club={club}
+          joined={joinedIds.includes(club.id)}
+          popular={clubs.length > 0 && club.members === maxMembers}
+          menuOpen={menuOpenId === club.id}
+          onToggleMenu={() => onToggleMenu(club.id)}
+          onJoin={() => onJoin(club.id)}
+          onDelete={() => onDelete(club.id, club.name)}
+        />
+      ))}
+
+      <button
+        type="button"
+        onClick={onCreate}
+        className="group flex aspect-square w-full flex-col items-center justify-center rounded-[20px] border border-dashed p-6 text-center transition hover:border-[#a78bfa]/50 hover:bg-[#7c3aed]/5"
+        style={{ borderColor: 'rgba(168,85,247,.28)', backgroundColor: 'rgba(255,255,255,.015)' }}
+      >
+        <div
+          className="flex h-11 w-11 items-center justify-center rounded-2xl border border-dashed transition group-hover:text-[#a78bfa]"
+          style={{ borderColor: 'rgba(168,85,247,.4)', color: '#7d76a3' }}
+        >
+          <Plus className="h-5 w-5" />
+        </div>
+        <p className="mt-3 text-sm font-semibold" style={{ color: '#ece8ff' }}>
+          Start your own club
+        </p>
+        <p className="mt-1 text-xs" style={{ color: '#9a93bd' }}>
+          Create a space for your people
+        </p>
+      </button>
+    </div>
+  )
+}
+
 export function ClubsPage() {
   const [clubs, setClubs] = useState<Club[]>([])
   const [joinedIds, setJoinedIds] = useState<number[]>([])
@@ -220,6 +721,7 @@ export function ClubsPage() {
   const [query, setQuery] = useState('')
   const [catFilter, setCatFilter] = useState('All')
   const [sort, setSort] = useState<'Popular' | 'A–Z'>('Popular')
+  const [hideJoined, setHideJoined] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [openClubMenuId, setOpenClubMenuId] = useState<number | null>(null)
@@ -233,6 +735,7 @@ export function ClubsPage() {
 
   const me = getUser()
   const meId = me ? Number(me.id) : undefined
+  const meName = me && typeof me.name === 'string' ? me.name : undefined
   const nameInputRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -248,11 +751,15 @@ export function ClubsPage() {
       setClubs(parsed)
       setJoinedIds(joinedIdsArr)
 
-      // prefetch messages for joined clubs (for previews)
+      // prefetch messages + members for joined clubs (for previews / avatar stacks)
       joinedIdsArr.forEach((id) => {
         api
           .get<ClubMessage[]>(`/api/clubs/${id}/messages`)
           .then((msgs) => setMessages((prev) => ({ ...prev, [id]: msgs })))
+          .catch(() => {})
+        api
+          .get<ClubMember[]>(`/api/clubs/${id}/members`)
+          .then((members) => setClubMembers((prev) => ({ ...prev, [id]: members })))
           .catch(() => {})
       })
     } catch {
@@ -316,10 +823,36 @@ export function ClubsPage() {
   }, [])
 
   const allClubs = clubs
-  const myClubs = allClubs.filter((c) => joinedIds.includes(c.id))
+  const myClubs = useMemo(() => allClubs.filter((c) => joinedIds.includes(c.id)), [allClubs, joinedIds])
+
+  /* Unread conversations float to the top, then the freshest chat wins. */
+  const yourClubs = useMemo<YourClubEntry[]>(() => {
+    return myClubs
+      .map((club) => {
+        const msgs = messages[club.id] ?? []
+        const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null
+        const lastAt = lastMsg ? new Date(lastMsg.createdAt).getTime() || 0 : 0
+        const senders = Array.from(new Set(msgs.slice(-6).map((m) => m.author))).slice(-3)
+        return {
+          club,
+          unread: newCountFor(club.id, msgs, meId),
+          lastMsg,
+          lastAt,
+          activeNow: !!lastMsg && Date.now() - lastAt < ACTIVE_WINDOW_MS,
+          senders,
+        }
+      })
+      .sort(
+        (a, b) =>
+          b.unread - a.unread ||
+          b.lastAt - a.lastAt ||
+          a.club.name.localeCompare(b.club.name),
+      )
+  }, [myClubs, messages, meId])
 
   const discovered = useMemo(() => {
     let list = allClubs.filter((c) => {
+      if (hideJoined && joinedIds.includes(c.id)) return false
       const matchesCat = catFilter === 'All' || clubCategory(c) === catFilter
       const q = query.trim().toLowerCase()
       const matchesQuery =
@@ -332,7 +865,7 @@ export function ClubsPage() {
     if (sort === 'Popular') list = [...list].sort((a, b) => b.members - a.members)
     else list = [...list].sort((a, b) => a.name.localeCompare(b.name))
     return list
-  }, [allClubs, catFilter, query, sort])
+  }, [allClubs, catFilter, query, sort, hideJoined, joinedIds])
 
   const active = activeClub !== null ? allClubs.find((c) => c.id === activeClub) ?? null : null
   const activeMsgs = active ? messages[active.id] ?? [] : []
@@ -481,7 +1014,7 @@ export function ClubsPage() {
   /* ---------- Chat room ---------- */
   if (active) {
     return (
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1560px]">
         <button
           type="button"
           onClick={() => setActiveClub(null)}
@@ -684,287 +1217,138 @@ export function ClubsPage() {
 
   /* ---------- Dashboard ---------- */
   return (
-    <div className="rise-grid mx-auto max-w-6xl space-y-8">
+    <div className="flex h-full min-h-0 flex-col pb-1 max-[1100px]:h-auto max-[1100px]:min-h-full">
       {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">Network</p>
-          <h1 className="mt-1 font-display text-3xl font-bold tracking-tight text-ink">Find your people</h1>
-          <p className="mt-1 text-sm text-muted">Join a club, start a chat, show up on campus.</p>
+          <p className="font-mono text-[10px] tracking-[0.18em] uppercase" style={{ color: '#7d76a3' }}>
+            NETWORK
+          </p>
+          <h1 className="mt-1 font-display text-3xl font-bold tracking-tight" style={{ color: '#ece8ff' }}>
+            Find your people
+          </h1>
+          <p className="mt-1 text-sm" style={{ color: '#9a93bd' }}>
+            Join a club, start a chat, show up on campus.
+          </p>
         </div>
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-violet to-violet-deep px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(139,92,246,0.35)] transition hover:opacity-90"
+          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-[#8b5cf6] to-[#5b21b6] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_0_22px_rgba(139,92,246,0.38)] transition hover:opacity-90"
         >
           <Plus className="h-4 w-4" /> Create club
         </button>
-      </div>
+      </header>
 
-      {/* Your clubs */}
-      <section>
-        <div className="flex items-center gap-2.5">
-          <CrystalMark size="sm" spinOnView />
-          <h2 className="text-sm font-semibold text-ink">Your clubs</h2>
-          <span className="ml-auto font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
-            {myClubs.length} joined
-          </span>
-        </div>
-
-        {myClubs.length === 0 ? (
-          <div className="glass-ice mt-4 rounded-xl px-5 py-6 text-center">
-            <p className="text-sm font-medium text-ink">No clubs yet</p>
-            <p className="mt-1 text-xs text-muted">Join one below to start chatting with members</p>
-          </div>
-        ) : (
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            {myClubs.map((club) => {
-              const msgs = messages[club.id] ?? []
-              const lastMsg = msgs.length ? msgs[msgs.length - 1] : null
-              const newCount = newCountFor(club.id, msgs, meId)
-              return (
-                <div
-                  key={club.id}
-                  className="glass-ice group relative overflow-hidden rounded-xl transition duration-200 hover:-translate-y-0.5 hover:border-violet/40 hover:shadow-[0_0_24px_rgba(139,92,246,0.18)]"
-                >
-                  {/* banner */}
-                  <div className="relative h-24 w-full overflow-visible rounded-t-xl" style={bannerStyle(clubCategory(club), club.banner)}>
-                    <CategoryDecor category={clubCategory(club)} />
-                    {newCount > 0 && (
-                      <span className="absolute top-2 right-2 rounded-full bg-gradient-to-br from-violet to-violet-deep px-2 py-0.5 font-mono text-[8px] font-bold text-white">
-                        {newCount} new
-                      </span>
-                    )}
-                    <span
-                      className="absolute -bottom-5 left-4 flex h-12 w-12 items-center justify-center rounded-xl border text-sm font-bold shadow-lg"
-                      style={{ backgroundColor: '#0b0910', borderColor: club.accent, color: club.accent }}
-                    >
-                      {clubInitial(club.name)}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-1 flex-col p-4 pt-7">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-ink">{club.name}</p>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2">
-                        <span
-                          className={clsx(
-                            'inline-flex rounded-full border px-2 py-0.5 font-mono text-[8px] tracking-[0.14em] uppercase',
-                            catStyles[clubCategory(club)] ?? 'border-ice/10 bg-ice/[0.03] text-muted',
-                          )}
-                        >
-                          {clubCategory(club)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* last message preview box */}
-                    <div className="mt-3 rounded-xl border border-ice/10 bg-surface-2/40 px-3 py-2.5">
-                      {lastMsg ? (
-                        <p className="line-clamp-2 text-xs leading-relaxed text-ink/90">
-                          <span className="font-semibold text-muted">{lastMsg.author}: </span>
-                          {lastMsg.body}
-                        </p>
-                      ) : (
-                        <p className="text-xs leading-relaxed text-muted">
-                          No messages yet. Say hi and start the first hackathon thread.
-                        </p>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => openClub(club.id)}
-                      className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-violet-soft transition hover:text-ice"
-                    >
-                      Open chat <ArrowLeft className="h-3 w-3 -rotate-180" />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Discover clubs */}
-      <section>
-        <div className="flex items-center gap-2.5">
-          <CrystalMark size="sm" spinOnView />
-          <h2 className="text-sm font-semibold text-ink">Discover clubs</h2>
-          <span className="ml-auto font-mono text-[10px] tracking-[0.14em] text-muted uppercase">
-            {discovered.length} clubs
-          </span>
-        </div>
-
-        {/* toolbar row */}
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-ice/40" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search clubs…"
-              className="w-full rounded-xl border border-ice/10 bg-thaw py-2 pr-3 pl-9 text-sm text-ink outline-none placeholder:text-ice/30 focus:border-ice/30 focus:ring-2 focus:ring-violet/20"
+      {/* Two-column board */}
+      <div className="mt-6 grid min-h-0 flex-1 grid-cols-[520px_1px_minmax(0,1fr)] gap-[26px] max-[1400px]:grid-cols-[420px_1px_minmax(0,1fr)] max-[1100px]:grid-cols-1 max-[1100px]:gap-y-6 max-[1100px]:flex-none max-[1100px]:overflow-visible">
+        {/* Left column — Your clubs */}
+        <section className="flex min-h-0 flex-col gap-3 max-[1100px]:flex-none">
+          <SectionHeading label="Your clubs" count={`${yourClubs.length} JOINED`} />
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1 max-[1100px]:flex-none max-[1100px]:overflow-visible max-[1100px]:pr-0">
+            <YourClubsRail
+              entries={yourClubs}
+              membersById={clubMembers}
+              meId={meId}
+              meName={meName}
+              onOpen={openClub}
             />
           </div>
-          <div className="flex gap-1">
-            {(['Popular', 'A–Z'] as const).map((s) => (
+        </section>
+
+        {/* Vertical divider */}
+        <div
+          aria-hidden
+          className="my-1 h-full w-px bg-gradient-to-b from-[rgba(168,85,247,.25)] via-[rgba(168,85,247,.12)] to-transparent max-[1100px]:hidden"
+        />
+
+        {/* Right column — Discover clubs */}
+        <section className="flex min-h-0 flex-col gap-3 max-[1100px]:mt-2 max-[1100px]:flex-none">
+          <SectionHeading label="Discover clubs" count={`${discovered.length} CLUBS`} />
+
+          {/* Toolbar */}
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2" style={{ color: 'rgba(184,164,224,.4)' }} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search clubs…"
+                className="w-full rounded-xl border py-2 pr-3 pl-9 text-sm outline-none placeholder:text-[rgba(184,164,224,.35)] focus:border-[#8b5cf6]/50 focus:ring-2 focus:ring-[#8b5cf6]/18"
+                style={{
+                  borderColor: 'rgba(184,164,224,.12)',
+                  backgroundColor: 'rgba(18,15,24,.9)',
+                  color: '#ece8ff',
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              {(['Popular', 'A–Z'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setSort(s)}
+                  className={clsx(
+                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                    sort === s
+                      ? 'border-[#8b5cf6]/70 text-[#ece8ff]'
+                      : 'border-[rgba(184,164,224,.12)] text-[#9a93bd] hover:text-[#ece8ff]',
+                  )}
+                  style={sort === s ? { backgroundColor: 'rgba(124,58,237,.35)' } : {}}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setHideJoined((prev) => !prev)}
+              className={clsx(
+                'rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+                hideJoined
+                  ? 'border-[#8b5cf6]/70 text-[#ece8ff]'
+                  : 'border-[rgba(184,164,224,.12)] text-[#9a93bd] hover:text-[#ece8ff]',
+              )}
+              style={hideJoined ? { backgroundColor: 'rgba(124,58,237,.35)' } : {}}
+            >
+              Hide joined
+            </button>
+          </div>
+
+          {/* Category chips */}
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {categories.map((cat) => (
               <button
-                key={s}
+                key={cat}
                 type="button"
-                onClick={() => setSort(s)}
+                onClick={() => setCatFilter(cat)}
                 className={clsx(
-                  'rounded-full border px-3 py-1.5 text-xs font-semibold transition',
-                  sort === s
-                    ? 'border-ice/25 bg-ice/15 text-ice'
-                    : 'border-ice/10 bg-ice/[0.03] text-muted hover:border-ice/20 hover:text-ink',
+                  'rounded-full border px-3 py-1 text-xs font-semibold transition',
+                  catFilter === cat
+                    ? 'border-[#8b5cf6] text-[#ece8ff]'
+                    : 'border-[rgba(184,164,224,.12)] text-[#9a93bd] hover:text-[#ece8ff]',
                 )}
+                style={catFilter === cat ? { backgroundColor: 'rgba(124,58,237,.35)' } : {}}
               >
-                {s}
+                {cat}
               </button>
             ))}
           </div>
-        </div>
 
-        {/* category chips */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setCatFilter(cat)}
-              className={clsx(
-                'rounded-full border px-3 py-1 text-xs font-semibold transition',
-                catFilter === cat
-                  ? cat === 'All'
-                    ? 'border-ice/25 bg-ice/15 text-ice'
-                    : catStyles[cat]
-                  : 'border-ice/10 bg-ice/[0.03] text-muted hover:border-ice/20 hover:text-ink',
-              )}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
-        {/* 3-col grid */}
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {discovered.map((club) => {
-            const isJoined = joinedIds.includes(club.id)
-            const isPopular = discovered.length > 0 && club.members === Math.max(...discovered.map((c) => c.members))
-            return (
-              <article
-                key={club.id}
-                className="group flex flex-col overflow-hidden rounded-xl border border-ice/10 bg-surface-2/40 transition hover:border-violet/40 hover:shadow-[0_0_20px_rgba(139,92,246,0.12)]"
-              >
-                {/* banner */}
-                <div
-                  className="relative h-24 w-full overflow-visible"
-                  style={bannerStyle(clubCategory(club), club.banner)}
-                >
-                  <CategoryDecor category={clubCategory(club)} />
-                  {isPopular && (
-                    <span className="absolute top-2 right-2 rounded-full bg-gradient-to-br from-amber-gentle to-amber-gentle/80 px-2 py-0.5 font-mono text-[8px] font-bold text-thaw">
-                      Popular this week
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-1 flex-col p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <span
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-xs font-bold"
-                      style={{ backgroundColor: '#0b0910', borderColor: club.accent, color: club.accent }}
-                    >
-                      {clubInitial(club.name)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => toggleJoin(club.id)}
-                      className={clsx(
-                        'shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold transition',
-                        isJoined
-                          ? 'border-emerald-soft/30 bg-emerald-soft/10 text-emerald-soft hover:border-emerald-soft/50'
-                          : 'border-ice/20 bg-ice/10 text-ice hover:bg-ice/15',
-                      )}
-                    >
-                      {isJoined ? 'Joined' : 'Join'}
-                    </button>
-                  </div>
-
-                  <div className="mt-2 flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-ink">{club.name}</p>
-                    <span
-                      className={clsx(
-                        'shrink-0 rounded-full border px-2 py-0.5 font-mono text-[8px] tracking-[0.14em] uppercase',
-                        catStyles[clubCategory(club)] ?? 'border-ice/10 bg-ice/[0.03] text-muted',
-                      )}
-                    >
-                      {clubCategory(club)}
-                    </span>
-                  </div>
-
-                  <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">{club.description}</p>
-
-                  <div className="mt-auto flex items-center justify-between pt-3">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setOpenClubMenuId((prev) => (prev === club.id ? null : club.id))
-                        }}
-                        className="flex h-7 w-7 items-center justify-center rounded-full border transition hover:bg-violet/10 hover:text-violet-soft"
-                        style={{ borderColor: 'rgba(184,164,224,0.25)', color: '#9a8fb0' }}
-                        aria-label="More options"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                      {openClubMenuId === club.id && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="absolute bottom-9 left-0 z-20 min-w-[120px] rounded-xl border p-1 shadow-lg backdrop-blur-xl"
-                          style={{ background: 'rgba(26,21,36,0.9)', borderColor: 'rgba(184,164,224,0.2)' }}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => deleteClub(club.id, club.name)}
-                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition hover:bg-violet/10"
-                            style={{ color: '#cfc8e6' }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <span className="font-mono text-[9px] tracking-[0.12em] text-muted uppercase">
-                      {club.members} members
-                    </span>
-                  </div>
-                </div>
-              </article>
-            )
-          })}
-
-          {/* Start your own club card */}
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="group flex flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-ice/25 bg-ice/[0.02] p-6 text-center transition hover:border-violet/40 hover:bg-violet/5"
-            style={{ minHeight: '260px' }}
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-dashed border-ice/30 text-ice/60 transition group-hover:text-violet-soft">
-              <Plus className="h-5 w-5" />
-            </div>
-            <p className="mt-3 text-sm font-semibold text-ink">Start your own club</p>
-            <p className="mt-1 text-xs text-muted">Create a space for your people</p>
-          </button>
-        </div>
-      </section>
+          {/* Results */}
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1 max-[1100px]:flex-none max-[1100px]:h-auto max-[1100px]:overflow-visible max-[1100px]:pr-0">
+            <DiscoverGrid
+              clubs={discovered}
+              joinedIds={joinedIds}
+              menuOpenId={openClubMenuId}
+              onToggleMenu={(id) => setOpenClubMenuId((prev) => (prev === id ? null : id))}
+              onJoin={toggleJoin}
+              onDelete={deleteClub}
+              onCreate={() => setShowCreate(true)}
+            />
+          </div>
+        </section>
+      </div>
 
       {/* Create club modal */}
       {showCreate && (

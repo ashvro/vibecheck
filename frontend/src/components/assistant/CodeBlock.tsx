@@ -118,7 +118,7 @@ export function CodeBlock({ lang, code }: { lang: string; code: string }) {
   return (
     <div className="my-3.5 overflow-hidden rounded-xl border border-vc-line bg-vc-rail">
       <div className="flex items-center justify-between border-b border-vc-line px-3.5 py-1.5">
-        <span className="font-mono text-[11px] tracking-[0.08em] text-vc-ink-2 uppercase">{label}</span>
+        <span className="text-[12px] font-medium text-vc-ink-2">{label}</span>
         <button
           type="button"
           onClick={copy}

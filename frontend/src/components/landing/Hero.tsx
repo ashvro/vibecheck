@@ -36,7 +36,7 @@ export function Hero() {
       setTyped(FULL_TEXT.slice(0, i))
       if (i < FULL_TEXT.length) {
         const char = FULL_TEXT[i - 1]
-        const delay = char === ' ' ? 120 : 55 + Math.random() * 35
+        const delay = char === ' ' ? 120 : 70
         timer = window.setTimeout(typeNext, delay)
       } else {
         timer = window.setTimeout(() => setGlitching(true), 180)
@@ -73,7 +73,7 @@ export function Hero() {
   return (
     <section
       id="top"
-      className="relative flex min-h-[100svh] flex-col overflow-hidden bg-thaw text-ice"
+      className="relative flex min-h-[100svh] flex-col overflow-hidden bg-transparent text-ice"
       onPointerMove={handlePointerMove}
     >
       {/* Hairline grid backdrop */}

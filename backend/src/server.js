@@ -17,11 +17,16 @@ server.listen(PORT, () => {
   console.log(`VibeCheck API listening on http://localhost:${PORT}`)
 })
 
-// Warm the local embedding model in the background so the first academic
-// message isn't delayed by a cold start (a fresh checkout downloads ~120 MB on
-// first run). Failures are non-fatal — the pipeline skips retrieval.
+// Warm retrieval in the background so the first academic message isn't delayed
+// by a cold start (a fresh checkout downloads ~120 MB on first run). This also
+// parses the stored chunk vectors once up front — otherwise the first query
+// re-reads and JSON-parses ~200 MB before it can score anything. Failures are
+// non-fatal — the pipeline skips retrieval.
 if (process.env.EMBED_PREWARM !== 'false') {
   import('./utils/localEmbed.js')
     .then((m) => m.warmLocalEmbed())
     .catch((err) => console.warn('embedding model pre-warm failed:', err?.message || err))
+  import('./rag.js')
+    .then((m) => m.warmChunkCache())
+    .catch((err) => console.warn('retrieval index pre-warm failed:', err?.message || err))
 }

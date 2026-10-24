@@ -207,14 +207,21 @@ authRoutes.post('/signup', async (req, res, next) => {
 authRoutes.post('/signin', async (req, res, next) => {
   try {
     const { email, password } = req.body || {}
+    const identifier = String(email ?? '').trim()
 
-    if (!email?.trim() || !password?.trim()) {
-      return res.status(400).json({ error: 'email and password are required.' })
+    if (!identifier || !password?.trim()) {
+      return res.status(400).json({ error: 'email or VibeTag and password are required.' })
     }
 
-    const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } })
+    let user = null
+    if (VIBE_TAG_RE.test(identifier)) {
+      user = await prisma.user.findUnique({ where: { vibeTag: identifier } })
+    }
     if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password.' })
+      user = await prisma.user.findUnique({ where: { email: identifier.toLowerCase() } })
+    }
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials.' })
     }
 
     const valid = await bcrypt.compare(password.trim(), user.passwordHash)

@@ -90,14 +90,12 @@ function tokenize(text) {
   )
 }
 
-function lexicalScore(query, text) {
-  const q = tokenize(query)
-  if (!q.size) return 0
-  const t = tokenize(text)
-  if (!t.size) return 0
+/** Lexical overlap, with both sides already tokenised. */
+function lexicalScoreFromTokens(queryTokens, docTokens) {
+  if (!queryTokens.size || !docTokens.size) return 0
   let hits = 0
-  for (const tok of q) if (t.has(tok)) hits += 1
-  return hits / Math.sqrt(q.size)
+  for (const tok of queryTokens) if (docTokens.has(tok)) hits += 1
+  return hits / Math.sqrt(queryTokens.size)
 }
 
 function normalizeCategory(cat) {
@@ -121,8 +119,101 @@ export function loadChunks({ collections, categories } = {}) {
   return prisma.knowledgeChunk.findMany({ where, orderBy: { id: 'asc' } })
 }
 
+/**
+ * Parsed, ready-to-score chunk index.
+ *
+ * `retrieve` used to re-read every chunk and `JSON.parse` its embedding on each
+ * query. With ~13k chunks that is ~200 MB of JSON parsing per turn and made an
+ * academic voice reply take several seconds before the first token. The index
+ * is built once per collection set and reused: vectors become Float32Arrays
+ * (half the memory of JS numbers) and text is tokenised once, so a query only
+ * does the maths.
+ */
+const chunkIndexCache = new Map()
+const chunkIndexBuilds = new Map()
+
+function indexKey({ collections, categories }) {
+  return `${(collections || []).join(',')}|${(categories || []).join(',')}`
+}
+
+function chunkWhere({ collections, categories } = {}) {
+  const where = {}
+  if (collections && collections.length) where.collection = { in: collections }
+  if (categories && categories.length) where.category = { in: categories }
+  return where
+}
+
+/** Rows per query while building — keeps peak memory well below a full read. */
+const INDEX_BATCH = 400
+
+async function buildIndex({ collections, categories } = {}) {
+  const base = chunkWhere({ collections, categories })
+  const index = []
+  let cursor = null
+  for (;;) {
+    const where = cursor == null ? base : { ...base, id: { gt: cursor } }
+    const rows = await prisma.knowledgeChunk.findMany({
+      where,
+      orderBy: { id: 'asc' },
+      take: INDEX_BATCH,
+      select: { id: true, source: true, category: true, title: true, text: true, embedding: true },
+    })
+    if (!rows.length) break
+    for (const row of rows) {
+      if (isJunkChunk(row.text)) continue
+      let vec = null
+      try {
+        const parsed = JSON.parse(row.embedding)
+        if (Array.isArray(parsed) && parsed.length) vec = Float32Array.from(parsed)
+      } catch {
+        vec = null
+      }
+      index.push({
+        id: row.id,
+        source: row.source,
+        category: row.category,
+        title: row.title,
+        text: row.text,
+        vec,
+      })
+    }
+    cursor = rows[rows.length - 1].id
+    if (rows.length < INDEX_BATCH) break
+  }
+  return index
+}
+
+async function loadIndex(options = {}) {
+  const key = indexKey(options)
+  const cached = chunkIndexCache.get(key)
+  if (cached) return cached
+  // A voice turn can arrive while the boot warm-up is still building: share
+  // the same promise instead of parsing the corpus twice.
+  const building = chunkIndexBuilds.get(key)
+  if (building) return building
+
+  const pending = buildIndex(options)
+    .then((index) => {
+      chunkIndexCache.set(key, index)
+      return index
+    })
+    .finally(() => chunkIndexBuilds.delete(key))
+  chunkIndexBuilds.set(key, pending)
+  return pending
+}
+
+/** Builds every retrieval index ahead of the first request. */
+export async function warmChunkCache() {
+  await Promise.all(KNOWLEDGE_COLLECTIONS.map((collection) => loadIndex({ collections: [collection] })))
+}
+
+/** Drops cached vectors (call after re-ingesting knowledge). */
+export function invalidateChunkCache() {
+  chunkIndexCache.clear()
+}
+
 export async function retrieve(query, { collections, boosts = null, topK = 4 } = {}) {
-  const chunks = await loadChunks({ collections })
+  const chunks = await loadIndex({ collections })
   if (!chunks.length) {
     return { results: [], bestScore: 0, total: chunks.length }
   }
@@ -139,26 +230,30 @@ export async function retrieve(query, { collections, boosts = null, topK = 4 } =
   }
 
   const boostSet = boosts ? new Set(boosts.map(normalizeCategory)) : null
+  const queryTokens = tokenize(query)
 
-  const scored = []
-  for (const chunk of chunks) {
-    if (isJunkChunk(chunk.text)) continue
-    let embed = null
-    try {
-      embed = JSON.parse(chunk.embedding)
-    } catch {
-      embed = null
-    }
-    const vec = Array.isArray(embed) ? cosine(queryVec, embed) : 0
-    const lex = lexicalScore(query, chunk.text)
-    const base = 0.7 * vec + 0.3 * Math.min(1, lex)
+  // Score the whole corpus by vector (one cheap pass), then re-score only the
+  // most promising chunks for keyword overlap. Tokenising every one of ~17k
+  // passages on each turn was a large part of the old multi-second retrieval.
+  const scored = chunks.map((chunk) => ({
+    chunk,
+    vector: chunk.vec ? cosine(queryVec, chunk.vec) : 0,
+  }))
+  scored.sort((a, b) => b.vector - a.vector)
+
+  const shortlist = scored.slice(0, Math.max(topK * 50, 250))
+  for (const item of shortlist) {
+    const lex = lexicalScoreFromTokens(queryTokens, tokenize(item.chunk.text))
+    const base = 0.7 * item.vector + 0.3 * Math.min(1, lex)
     let score = base
-    if (boostSet && boostSet.has(normalizeCategory(chunk.category))) score += 0.15
-    scored.push({ chunk, vector: vec, lexical: lex, score, boosted: score !== base })
+    if (boostSet && boostSet.has(normalizeCategory(item.chunk.category))) score += 0.15
+    item.lexical = lex
+    item.score = score
+    item.boosted = score !== base
   }
+  shortlist.sort((a, b) => b.score - a.score)
 
-  scored.sort((a, b) => b.score - a.score)
-  const results = scored.slice(0, topK).map((r) => ({
+  const results = shortlist.slice(0, topK).map((r) => ({
     id: r.chunk.id,
     source: r.chunk.source,
     category: r.chunk.category,
@@ -169,7 +264,7 @@ export async function retrieve(query, { collections, boosts = null, topK = 4 } =
     score: Math.round(r.score * 100) / 100,
   }))
 
-  return { results, bestScore: scored[0]?.score ?? 0, total: chunks.length }
+  return { results, bestScore: shortlist[0]?.score ?? 0, total: chunks.length }
 }
 
 /**

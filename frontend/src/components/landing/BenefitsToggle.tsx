@@ -2,7 +2,6 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { CrystalMark } from '../CrystalMark'
 import { Reveal } from './Reveal'
-import { GhostNum } from './GhostNum'
 
 const steps = [
   {
@@ -143,24 +142,11 @@ export function BenefitsToggle() {
     <>
       <section
         id="how"
-        className="relative scroll-mt-20 border-t border-ice/10 bg-thaw py-20 text-ice sm:py-28"
+        className="relative scroll-mt-20 border-t border-ice/10 bg-transparent py-20 text-ice sm:py-28"
       >
-        <GhostNum>02</GhostNum>
         <div className="relative z-10 mx-auto max-w-[1100px] px-5 sm:px-8 lg:px-10">
           <Reveal>
-            <div className="section-marker" aria-hidden>
-              <span className="h-px w-9 bg-gradient-to-r from-violet-soft/70 to-transparent" />
-              <span className="font-mono text-[10px] tracking-[0.28em] text-ice/30 uppercase">
-                02 · how it works
-              </span>
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <CrystalMark spinOnView />
-              <p className="font-mono text-[11px] tracking-[0.18em] text-ice/45 uppercase">
-                How it works
-              </p>
-            </div>
-            <h2 className="mt-4 max-w-lg font-display text-3xl font-bold tracking-tight sm:text-5xl">
+            <h2 className="max-w-lg font-display text-3xl font-bold tracking-tight sm:text-5xl">
               Three quiet steps to clarity
             </h2>
           </Reveal>
@@ -204,29 +190,13 @@ export function BenefitsToggle() {
 
       <section
         id="students"
-        className="relative scroll-mt-20 overflow-hidden border-t border-ice/10 landing-frost py-20 text-ice sm:py-28"
+        className="relative scroll-mt-20 overflow-hidden border-t border-ice/10 bg-transparent py-20 text-ice sm:py-28"
       >
-        <GhostNum>03</GhostNum>
-        <div
-          className="haze-blob pointer-events-none absolute -right-40 top-1/3 h-[34rem] w-[34rem] rounded-full bg-violet/10 blur-[120px]"
-          aria-hidden
-        />
+
         <div id="institutions" className="mx-auto max-w-[1100px] scroll-mt-20 px-5 sm:px-8 lg:px-10">
           <div className="relative z-10 grid gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-16">
             <div>
               <Reveal>
-                <div className="section-marker" aria-hidden>
-                  <span className="h-px w-9 bg-gradient-to-r from-violet-soft/70 to-transparent" />
-                  <span className="font-mono text-[10px] tracking-[0.28em] text-ice/30 uppercase">
-                    03 · science
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center gap-3">
-                  <CrystalMark spinOnView />
-                  <p className="font-mono text-[11px] tracking-[0.18em] text-ice/45 uppercase">
-                    Science
-                  </p>
-                </div>
                 <h2 className="mt-4 font-display text-3xl font-bold tracking-tight text-balance sm:text-5xl">
                   For the 2am spiral.
                   <br />

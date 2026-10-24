@@ -1,189 +1,512 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
-import { Play, Square, Volume2, VolumeX, Sparkles, Heart } from 'lucide-react'
-import { PageHeader } from '../../components/PageHeader'
-
-const STEPS = [
-  { title: 'Settle in', text: 'Find a comfortable position. Close your eyes if you can. Take a slow, deep breath in through your nose… and let it out through your mouth. Let your shoulders drop.' },
-  { title: 'Body scan', text: 'Bring your attention to your feet. Notice any tension there, and let it soften. Move slowly up through your calves, your knees, your thighs. Let each part release as you go.' },
-  { title: 'Breathing rhythm', text: 'Breathe in for four counts… hold for four… and out for six. In two three four… hold two three four… out two three four five six. Let the rhythm be gentle and steady.' },
-  { title: 'Let go of thoughts', text: 'Thoughts will come. That is okay. Notice them like clouds passing, and gently return your attention to your breath. No judgement. Just breathe.' },
-  { title: 'Grounding', text: 'Feel the support beneath you. The chair, the floor, the earth. You are safe here. You are exactly where you need to be.' },
-  { title: 'Closing', text: 'Slowly bring your attention back. Wiggle your fingers and toes. Take one more deep breath. When you are ready, open your eyes. You did well. Carry this calm with you.' },
-]
+import { VoiceStage } from '../../components/relaxation/VoiceStage'
+import { VoiceIntroStage } from '../../components/relaxation/VoiceIntroStage'
+import { RelaxationSessionsCard } from '../../components/relaxation/RelaxationSessionsCard'
+import {
+  fetchInstructorVoices, getSavedVoiceId, saveVoiceId, breakTagsForDisplay, createScriptRunner,
+} from '../../lib/instructor'
+import type { InstructorVoice } from '../../lib/instructor'
+import { prewarmVoice, startVoiceInput, stopVoice, getVoiceLevel, pauseVoiceInput, resumeVoiceInput } from '../../lib/voice'
+import { SpeechStream } from '../../lib/tts'
+import type { VoicePhase } from '../../lib/voice'
 
 export function RelaxationPage() {
-  const [running, setRunning] = useState(false)
-  const [stepIndex, setStepIndex] = useState(0)
-  const [secondsLeft, setSecondsLeft] = useState(0)
-  const [muted, setMuted] = useState(false)
-  const [startedAt, setStartedAt] = useState<number | null>(null)
-  const timerRef = useRef<number | null>(null)
-  const synthRef = useRef<SpeechSynthesis | null>(null)
+  return <VoiceInstructorCard />
+}
 
-  const speak = useCallback((text: string) => {
-    if (muted) return
-    if (!('speechSynthesis' in window)) return
-    const synth = window.speechSynthesis
-    synth.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    u.rate = 0.85
-    u.pitch = 1
-    u.volume = 1
-    synth.speak(u)
-    synthRef.current = synth
-  }, [muted])
+/* -------------------------------------------------------------------------- */
+/*  Live voice instructor (ElevenLabs Conversational agent)                    */
+/* -------------------------------------------------------------------------- */
+type SessionState = 'idle' | 'connecting' | 'active' | 'disconnecting' | 'ended'
 
-  const stopAll = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
+type TranscriptRow = { id: number; role: 'agent' | 'user'; text: string }
+
+/** The opening line the ConvAI agent used, kept word-for-word. */
+const GREETING = 'Hello there, how are you doing today?'
+
+const BREAK_TAG = /(<break\s+time="[\d.]+s"\s*\/>)/gi
+
+type ScriptPiece = { text: string; pauseAfter: number }
+
+/**
+ * Splits a scripted line into spoken pieces and pauses. The script's exact
+ * words are preserved; only the <break> markup is removed from what is sent to
+ * TTS, and the pause is recreated locally. This avoids relying on a specific
+ * ElevenLabs model honouring SSML and avoids billing the tag characters.
+ */
+function scriptPieces(line: string): ScriptPiece[] {
+  const parts = line.split(BREAK_TAG)
+  const pieces: ScriptPiece[] = []
+  let pendingPause = 0
+  for (const part of parts) {
+    if (!part) continue
+    const tag = /^<break\s+time="([\d.]+)s"\s*\/>$/i.exec(part.trim())
+    if (tag) {
+      const seconds = Number(tag[1])
+      if (Number.isFinite(seconds) && seconds > 0) {
+        if (pieces.length) pieces[pieces.length - 1].pauseAfter += seconds
+        else pendingPause += seconds
+      }
+      continue
     }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
-    setRunning(false)
+    const text = part.replace(/\s+/g, ' ').trim()
+    if (!text) continue
+    pieces.push({ text, pauseAfter: pendingPause })
+    pendingPause = 0
+  }
+  return pieces
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+/**
+ * Open the microphone before anything else. Browsers show the permission
+ * prompt only once getUserMedia is called, so doing it first means the prompt
+ * appears immediately after the click instead of after several API calls.
+ */
+async function primeMicrophone() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new DOMException('getUserMedia unavailable', 'NotSupportedError')
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+  })
+  // Release the device; the voice SDK opens its own stream once the token is
+  // ready. Permission is now granted, so that second open is instant.
+  stream.getTracks().forEach((track) => track.stop())
+}
+
+/**
+ * The ElevenLabs SDK opens the mic with automatic gain control enabled. In a
+ * shared room AGC boosts a voice across the room to the same level as the
+ * person at the microphone, which makes the agent treat that voice as the
+ * user. Keep echo cancellation / noise suppression / voice isolation, but turn
+ * AGC off while this tab is mounted. The patch is removed on unmount, so the
+ * assistant's microphone behaviour is untouched.
+ */
+function installMicConstraints(): () => void {
+  const md = navigator.mediaDevices
+  if (!md?.getUserMedia) return () => {}
+  const original = md.getUserMedia.bind(md)
+  md.getUserMedia = (constraints?: MediaStreamConstraints) => {
+    const audio = constraints?.audio
+    if (!audio) return original(constraints)
+    const nextAudio: MediaTrackConstraints = {
+      ...(typeof audio === 'object' ? audio : {}),
+      autoGainControl: false,
+    }
+    return original({ ...constraints, audio: nextAudio })
+  }
+  return () => {
+    md.getUserMedia = original
+  }
+}
+
+function micErrorMessage(err: unknown): string {
+  const name = err instanceof Error ? err.name : ''
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microphone access was blocked. Allow it in your browser, then press start again.'
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return 'No microphone found. Connect one, then press start again.'
+  }
+  if (name === 'NotReadableError') {
+    return 'Your microphone is busy in another app. Close it, then press start again.'
+  }
+  if (name === 'NotSupportedError') {
+    return 'This browser cannot record audio. Try Chrome, Edge, or Safari.'
+  }
+  return 'Could not access the microphone. Check your browser settings and try again.'
+}
+
+function VoiceInstructorCard() {
+  const [voices, setVoices] = useState<InstructorVoice[]>([])
+  const [voicesLoading, setVoicesLoading] = useState(true)
+  const [voiceId, setVoiceId] = useState<string>('')
+  const [state, setState] = useState<SessionState>('idle')
+  const [phase, setPhase] = useState<'listening' | 'speaking' | null>(null)
+  const [transcript, setTranscript] = useState<TranscriptRow[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const [connNote, setConnNote] = useState<'mic' | 'agent' | null>(null)
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
+  const creditsUsedRef = useRef(0)
+  const sessionStartRef = useRef(0)
+
+  const rowIdRef = useRef(0)
+  const runnerRef = useRef(createScriptRunner())
+  // One session at a time: a double click must never open two audio streams.
+  const startingRef = useRef(false)
+  const cancelRef = useRef(false)
+  const phaseRef = useRef<'listening' | 'speaking' | null>(null)
+  const sessionActiveRef = useRef(false)
+  const processingRef = useRef(false)
+  const ttsRef = useRef<SpeechStream | null>(null)
+  const ttsAbortRef = useRef<AbortController | null>(null)
+  const ttsSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const ttsLevelRef = useRef(0)
+  const voiceIdRef = useRef('')
+
+  useEffect(() => {
+    voiceIdRef.current = voiceId
+  }, [voiceId])
+
+  // Keep room voices out of the input
+  useEffect(() => installMicConstraints(), [])
+
+  // Prewarm voice assets
+  useEffect(() => {
+    void prewarmVoice()
   }, [])
 
-  const start = useCallback(() => {
-    setRunning(true)
-    setStepIndex(0)
-    setSecondsLeft(150) // 2.5 minutes
-    setStartedAt(Date.now())
-    speak(STEPS[0].text)
-  }, [speak])
-
-  // countdown + step progression
+  // Load the voice catalogue (20 options) once.
   useEffect(() => {
-    if (!running) return
-    timerRef.current = window.setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          stopAll()
-          return 0
-        }
-        return prev - 1
+    let alive = true
+    fetchInstructorVoices()
+      .then((list) => {
+        if (!alive) return
+        setVoices(list)
+        const saved = getSavedVoiceId()
+        const chosen = saved && list.some((v) => v.voice_id === saved) ? saved : (list[0]?.voice_id ?? '')
+        setVoiceId(chosen)
       })
-    }, 1000)
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [running, stopAll])
+      .catch(() => alive && setError('Could not load voice options.'))
+      .finally(() => alive && setVoicesLoading(false))
+    return () => { alive = false }
+  }, [])
 
-  // progress step based on elapsed
+  // Session stopwatch.
   useEffect(() => {
-    if (!running || !startedAt) return
-    const elapsed = (Date.now() - startedAt) / 1000
-    const perStep = 150 / STEPS.length
-    const idx = Math.min(STEPS.length - 1, Math.floor(elapsed / perStep))
-    if (idx !== stepIndex) {
-      setStepIndex(idx)
-      speak(STEPS[idx].text)
+    if (state !== 'active') return
+    const t = window.setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [state])
+
+  const push = useCallback((role: 'agent' | 'user', text: string) => {
+    setTranscript((rows) => [...rows, { id: ++rowIdRef.current, role, text }])
+  }, [])
+
+  const finishSession = useCallback(async () => {
+    sessionActiveRef.current = false
+    setPhase(null)
+    phaseRef.current = null
+    try {
+      await stopVoice()
+    } catch {
+      /* already stopped */
     }
-  }, [secondsLeft, running, startedAt, stepIndex, speak])
+    if (ttsRef.current) { ttsRef.current.cancel(); ttsRef.current = null }
+    ttsLevelRef.current = 0
+    const durationSec = sessionStartRef.current ? (Date.now() - sessionStartRef.current) / 1000 : 0
+    try {
+      const { api } = await import('../../lib/api')
+      await api.post('/api/relaxation/sessions', {
+        voiceId: voiceIdRef.current || null,
+        creditsUsed: creditsUsedRef.current,
+        durationSec,
+      })
+    } catch (err) {
+      console.error('[relaxation] save session failed', err)
+    }
+    setSessionRefreshKey((k) => k + 1)
+    setState('ended')
+  }, [])
 
-  useEffect(() => {
-    return () => stopAll()
-  }, [stopAll])
+  /**
+   * Speaks one scripted line. Break tags are stripped and their durations are
+   * inserted as local silence, so the exact script audio is independent of the
+   * TTS model's SSML support (and pauses are not billed as characters).
+   */
+  const speakLine = useCallback(async (line: string) => {
+    if (!sessionActiveRef.current || cancelRef.current) return
 
-  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
-  const ss = String(secondsLeft % 60).padStart(2, '0')
-  const progress = startedAt ? Math.min(100, ((150 - secondsLeft) / 150) * 100) : 0
+    const imagine = /imagine/i.test(line)
+    const headpalms = /Roll the head/i.test(line) || /chin slowly/i.test(line)
+    let pieces = scriptPieces(line)
+    if (headpalms) {
+      if (/Roll the head/i.test(line)) {
+        pieces = line
+          .replace(/<break[^>]*>/gi, '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((s) => ({ text: s.endsWith('.') ? s : s + (s.endsWith(',') ? '' : '.'), pauseAfter: 2 }))
+      } else {
+        pieces = [{ text: line.replace(/<break[^>]*>/gi, '').trim(), pauseAfter: 2 }]
+      }
+    }
+    if (imagine) {
+      // In the imagine script, speak each sentence on its own and pause 3s
+      // after every full stop, regardless of the original cue grouping.
+      const sentences = line
+        .replace(/<break[^>]*>/gi, ' ')
+        .split(/(?<=[.!?…])\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+      pieces = sentences.map((s) => ({ text: s, pauseAfter: 3 }))
+    }
+    if (!pieces.length) return
+
+    setPhase('speaking')
+    phaseRef.current = 'speaking'
+    await pauseVoiceInput()
+
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+
+    try {
+      for (const piece of pieces) {
+        if (!sessionActiveRef.current || cancelRef.current) break
+
+        creditsUsedRef.current += piece.text.replace(/\\s+/g, '').length
+
+        const controller = new AbortController()
+        ttsAbortRef.current = controller
+        try {
+          const { getToken } = await import('../../lib/api')
+          const auth = getToken()
+          const res = await fetch('/api/assistant/tts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+            },
+            body: JSON.stringify({ text: piece.text, voiceId: voiceIdRef.current || undefined }),
+            signal: controller.signal,
+          })
+          if (!res.ok || !res.body) throw new Error(`TTS failed (${res.status})`)
+          const bytes = await res.arrayBuffer()
+          if (controller.signal.aborted) return
+
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
+          const ctx = new AudioCtx()
+          if (ctx.state === 'suspended') await ctx.resume()
+          const buffer = await ctx.decodeAudioData(bytes.slice(0))
+          if (controller.signal.aborted) return
+
+          ttsLevelRef.current = 0.7
+          await new Promise<void>((resolve) => {
+            const source = ctx.createBufferSource()
+            source.buffer = buffer
+            source.connect(ctx.destination)
+            ttsSourceRef.current = source
+            source.onended = () => {
+              ttsSourceRef.current = null
+              ttsLevelRef.current = 0
+              resolve()
+            }
+            source.start()
+          })
+        } catch (err) {
+          if (!(err instanceof DOMException && err.name === 'AbortError')) {
+            console.error('[relaxation] piece failed', err)
+          }
+        } finally {
+          ttsAbortRef.current = null
+        }
+
+        if (piece.pauseAfter > 0 && sessionActiveRef.current && !cancelRef.current) {
+          await sleep(piece.pauseAfter * 1000)
+        }
+      }
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        console.error('[relaxation] speak failed', err)
+      }
+    } finally {
+      ttsAbortRef.current = null
+      ttsSourceRef.current = null
+      ttsLevelRef.current = 0
+      if (sessionActiveRef.current && !cancelRef.current) {
+        setPhase('listening')
+        phaseRef.current = 'listening'
+        await resumeVoiceInput()
+      }
+    }
+  }, [])
+
+  const getNextLine = useCallback(async () => {
+    if (!sessionActiveRef.current || processingRef.current) return
+    processingRef.current = true
+    try {
+      const out = await runnerRef.current.clientTools.get_next_line({})
+      let parsed: { kind?: string; line?: string }
+      try {
+        parsed = JSON.parse(out)
+      } catch {
+        console.error('[relaxation] invalid script line payload')
+        return
+      }
+      if (!sessionActiveRef.current) return
+
+      if (parsed.kind === 'end') {
+        await finishSession()
+        return
+      }
+      if (parsed.kind === 'wait' || !parsed.line) return
+
+      push('agent', breakTagsForDisplay(parsed.line))
+      await speakLine(parsed.line)
+      if (!sessionActiveRef.current) return
+
+      // Safety / goodbye / end-of-script lines finish the session. Other
+      // "speak" lines (pause, note, confirm) return to listening naturally.
+      const status = runnerRef.current.status()
+      if (parsed.kind === 'speak' && (status.phase === 'done' || status.step === 'closing' || status.step === 'done')) {
+        await finishSession()
+        return
+      }
+
+      setPhase('listening')
+      phaseRef.current = 'listening'
+    } catch (err) {
+      console.error('[relaxation] getNextLine failed', err)
+    } finally {
+      processingRef.current = false
+    }
+  }, [finishSession, push, speakLine])
+
+  const start = useCallback(async () => {
+    if (startingRef.current || sessionActiveRef.current) return
+    startingRef.current = true
+    cancelRef.current = false
+    setError(null)
+    setState('connecting')
+    setConnNote('mic')
+    setTranscript([])
+    setElapsed(0)
+    creditsUsedRef.current = 0
+    sessionStartRef.current = Date.now()
+    runnerRef.current = createScriptRunner()
+    phaseRef.current = null
+    processingRef.current = false
+    ttsLevelRef.current = 0
+    const chosen = voiceId
+    if (chosen) saveVoiceId(chosen)
+
+    try {
+      await primeMicrophone()
+    } catch (err) {
+      console.error('[relaxation] microphone unavailable', err)
+      startingRef.current = false
+      setConnNote(null)
+      setPhase(null)
+      setState('idle')
+      setError(micErrorMessage(err))
+      return
+    }
+
+    setConnNote(null)
+    try {
+      await startVoiceInput({
+        onPhase: (p) => {
+          if (sessionActiveRef.current) {
+            if (p === 'listening') { setPhase('listening'); phaseRef.current = 'listening' }
+            else if (p === 'speaking') { setPhase('speaking'); phaseRef.current = 'speaking' }
+          }
+        },
+        onTranscript: async (text) => {
+          if (!sessionActiveRef.current || cancelRef.current) return
+          runnerRef.current.hearUser(text)
+          push('user', text)
+          await getNextLine()
+        },
+        onError: (message) => {
+          setError(message)
+        },
+      })
+
+      // The user pressed End while the microphone was still starting.
+      if (cancelRef.current) {
+        await stopVoice()
+        setState('idle')
+        return
+      }
+
+      sessionActiveRef.current = true
+      runnerRef.current.markConnected()
+      setState('active')
+      push('agent', GREETING)
+      await speakLine(GREETING)
+      // Stop after the greeting and wait for the user's reply before continuing.
+      if (sessionActiveRef.current) {
+        setPhase('listening')
+        phaseRef.current = 'listening'
+      }
+      if (sessionActiveRef.current) {
+        setPhase('listening')
+        phaseRef.current = 'listening'
+      }
+    } catch (err) {
+      console.error('[relaxation] start failed', err)
+      sessionActiveRef.current = false
+      setPhase(null)
+      setState('idle')
+      setError(
+        err instanceof Error && /NotAllowedError|permission/i.test(err.message)
+          ? 'Microphone access was blocked. Allow it in your browser to talk with the instructor.'
+          : 'Could not start the session. Please try again.',
+      )
+    } finally {
+      startingRef.current = false
+      setConnNote(null)
+    }
+  }, [voiceId, push, getNextLine, speakLine])
+
+  const end = useCallback(async () => {
+    cancelRef.current = true
+    setState('disconnecting')
+    await finishSession()
+  }, [finishSession])
+
+  useEffect(() => () => {
+    void stopVoice()
+    if (ttsRef.current) { ttsRef.current.cancel(); ttsRef.current = null }
+  }, [])
+
+  const labelOf = (id: string) => voices.find((v) => v.voice_id === id) || null
+
+  const levelGetter = useCallback(() => {
+    if (phaseRef.current === 'speaking') return Math.min(1, ttsLevelRef.current * 1.8)
+    try {
+      return Math.min(1, getVoiceLevel() * 1.4)
+    } catch {
+      return 0
+    }
+  }, [])
+
+  const stageOpen = state === 'connecting' || state === 'active' || state === 'disconnecting'
+  const stagePhase: VoicePhase =
+    state === 'connecting'
+      ? 'ready'
+      : state === 'disconnecting'
+        ? 'processing'
+        : phase === 'speaking'
+          ? 'speaking'
+          : 'listening'
 
   return (
-    <div className="rise-grid mx-auto max-w-3xl space-y-6">
-      <PageHeader title="Relaxation" description="A guided 2-3 minute voice session to help you unwind." />
-
-      <div className="glass-ice rounded-2xl p-8 text-center space-y-6">
-        <div className="flex items-center justify-center gap-3">
-          <Heart className="h-6 w-6 text-rose-400" />
-          <h2 className="text-xl font-semibold text-ink">{running ? STEPS[stepIndex].title : 'Ready to relax?'}</h2>
-        </div>
-
-        <div className="relative mx-auto h-40 w-40">
-          <svg viewBox="0 0 160 160" className="h-full w-full -rotate-90">
-            <circle cx="80" cy="80" r="70" fill="none" stroke="rgba(184,164,224,0.12)" strokeWidth="10" />
-            <circle
-              cx="80"
-              cy="80"
-              r="70"
-              fill="none"
-              stroke="url(#relaxGrad)"
-              strokeWidth="10"
-              strokeDasharray={`${2 * Math.PI * 70 * (progress / 100)} ${2 * Math.PI * 70}`}
-              strokeLinecap="round"
-            />
-            <defs>
-              <linearGradient id="relaxGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#8b5cf6" />
-                <stop offset="1" stop-color="#ec4899" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-bold tabular-nums text-ink">{mm}:{ss}</span>
-            <span className="text-xs text-muted">{running ? 'remaining' : '2:30'}</span>
-          </div>
-        </div>
-
-        <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
-          {running ? STEPS[stepIndex].text : 'Press start to begin a guided relaxation session. Find a quiet spot, sit comfortably, and let the voice guide you.'}
-        </p>
-
-        <div className="flex items-center justify-center gap-3">
-          {!running ? (
-            <button
-              type="button"
-              onClick={start}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-violet to-violet-deep px-6 py-3 text-sm font-semibold text-white shadow-[0_0_20px_rgba(139,92,246,0.35)] transition hover:opacity-90"
-            >
-              <Play className="h-4 w-4" /> Start session
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={stopAll}
-              className="inline-flex items-center gap-2 rounded-full border border-ice/20 bg-ice/10 px-6 py-3 text-sm font-semibold text-ice transition hover:bg-ice/15"
-            >
-              <Square className="h-4 w-4" /> Stop
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setMuted((m) => !m)}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-ice/20 bg-ice/[0.03] text-muted transition hover:text-ice"
-            aria-label={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          </button>
-        </div>
-
-        <div className="flex items-center justify-center gap-2 text-xs text-muted">
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>Voice-guided · 2.5 minutes · No data collected</span>
-        </div>
+    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="min-w-0">
+        <VoiceIntroStage
+          voiceName={labelOf(voiceId)?.name}
+          voices={voices}
+          voiceId={voiceId}
+          voicesLoading={voicesLoading}
+          onVoiceChange={(id) => { setVoiceId(id); if (id) saveVoiceId(id) }}
+          onStart={start}
+          ended={state === 'ended'}
+          lines={transcript}
+          error={error}
+          active={stageOpen}
+          phase={stagePhase}
+          elapsed={elapsed}
+          onEnd={end}
+          getLevel={levelGetter}
+        />
       </div>
-
-      <div className="glass-ice rounded-2xl p-6">
-        <h3 className="text-sm font-semibold text-ink mb-3">Session steps</h3>
-        <ol className="space-y-2">
-          {STEPS.map((s, i) => (
-            <li
-              key={i}
-              className={clsx(
-                'flex items-start gap-3 rounded-xl border px-3 py-2 text-sm transition',
-                i === stepIndex && running
-                  ? 'border-violet/40 bg-violet/10 text-ink'
-                  : 'border-ice/10 bg-ice/[0.03] text-muted',
-              )}
-            >
-              <span className="font-mono text-[10px] text-muted mt-0.5">{i + 1}</span>
-              <div>
-                <p className="font-medium text-ink">{s.title}</p>
-                <p className="text-xs text-muted line-clamp-1">{s.text}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <RelaxationSessionsCard refreshKey={sessionRefreshKey} />
     </div>
   )
 }
